@@ -28,6 +28,7 @@ import {
     getBegById,
 } from '@/lib/api/beg';
 import { initializeDonation } from '@/lib/api/donations';
+import { getReactions, toggleReaction, type ReactionsPayload } from '@/lib/api/reactions';
 import { formatPlizApiErrorForUser } from '@/lib/api/types';
 import { savePendingDonationThankYou } from '@/lib/donation/pending-thank-you';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
@@ -69,6 +70,8 @@ export default function RequestDetailScreen() {
   const [request, setRequest] = useState<RequestDetail | null>(null);
   const [loading, setLoading] = useState(Boolean(id));
   const [error, setError] = useState<string | null>(null);
+  const [reactions, setReactions] = useState<ReactionsPayload | null>(null);
+  const [reactionBusy, setReactionBusy] = useState<string | null>(null);
 
   const loadRequest = useCallback(async () => {
     if (!id) {
@@ -93,6 +96,22 @@ export default function RequestDetailScreen() {
   useEffect(() => {
     void loadRequest();
   }, [loadRequest]);
+
+  const loadReactions = useCallback(async () => {
+    if (!id) return;
+    try {
+      const data = await withUnauthorizedRecovery(signOut, (token) =>
+        getReactions(token, 'beg', id)
+      );
+      setReactions(data);
+    } catch {
+      setReactions(null);
+    }
+  }, [id, signOut]);
+
+  useEffect(() => {
+    void loadReactions();
+  }, [loadReactions]);
 
   /** Default so Continue can POST without forcing a chip tap (was easy to miss → no fetch). */
   const [selectedAmount, setSelectedAmount] = useState<number | null>(
@@ -297,6 +316,25 @@ export default function RequestDetailScreen() {
     messages,
   };
 
+  const apiReactionCounts = new Map(
+    (reactions?.reactions ?? []).map((reaction) => [reaction.emoji, reaction.count])
+  );
+
+  const onToggleReaction = async (emoji: string) => {
+    if (!id || reactionBusy) return;
+    setReactionBusy(emoji);
+    try {
+      const data = await withUnauthorizedRecovery(signOut, (token) =>
+        toggleReaction(token, 'beg', id, emoji)
+      );
+      setReactions(data);
+    } catch (e) {
+      Alert.alert('Could not react', formatPlizApiErrorForUser(e));
+    } finally {
+      setReactionBusy(null);
+    }
+  };
+
   /** Figma: clock badge shows posted time (“8h ago”), not time remaining. */
   const fundingPostedBadge =
     timeRemaining === 'Expired' ? 'Ended' : timeAgo;
@@ -312,7 +350,7 @@ export default function RequestDetailScreen() {
         <View style={styles.pageContent}>
           <RequestDetailHeader
             onReportPress={() =>
-              Alert.alert('Report request', 'Thanks for helping keep Plz safe. Full reporting is coming soon.')
+              router.push('/(tabs)/report-issue' as import('expo-router').Href)
             }
           />
 
@@ -357,10 +395,23 @@ export default function RequestDetailScreen() {
 
           <View style={styles.reactionsRow}>
             {REACTION_PILLS.map(({ emoji, field }) => (
-              <View key={field} style={styles.reactionPill}>
+              <Pressable
+                key={field}
+                style={[
+                  styles.reactionPill,
+                  reactions?.userReaction === emoji && styles.reactionPillSelected,
+                  reactionBusy === emoji && styles.reactionPillBusy,
+                ]}
+                onPress={() => void onToggleReaction(emoji)}
+                disabled={Boolean(reactionBusy)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: reactions?.userReaction === emoji }}
+              >
                 <Text style={styles.reactionEmoji}>{emoji}</Text>
-                <Text style={styles.reactionCount}>{reactionCounts[field] ?? 0}</Text>
-              </View>
+                <Text style={styles.reactionCount}>
+                  {apiReactionCounts.get(emoji) ?? reactionCounts[field] ?? 0}
+                </Text>
+              </Pressable>
             ))}
           </View>
 
@@ -679,6 +730,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 999,
+  },
+  reactionPillSelected: {
+    backgroundColor: '#E0F2FE',
+    borderWidth: 1,
+    borderColor: '#2E8BEA',
+  },
+  reactionPillBusy: {
+    opacity: 0.6,
   },
   reactionEmoji: {
     fontSize: 16,

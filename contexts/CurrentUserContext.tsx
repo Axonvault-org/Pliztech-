@@ -54,9 +54,9 @@ export function displayMemberRoleLabel(user: MeUser | null): string {
   return donated > 0 ? 'Community Supporter' : 'Beginner';
 }
 
-/** Govt ID verified (NIN / passport) — only when API sends `verification.documentVerified`. */
+/** Govt ID verified (NIN / passport). Prefer final `isVerified`, fall back to document state for older API builds. */
 export function isDocumentVerified(user: MeUser | null): boolean {
-  return Boolean(user?.verification?.documentVerified);
+  return Boolean(user?.verification?.isVerified ?? user?.verification?.documentVerified);
 }
 
 /**

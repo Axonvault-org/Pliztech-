@@ -1,4 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { Image } from 'expo-image';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { Text } from '@/components/Text';
@@ -16,6 +17,7 @@ export type ProfileSummaryCardProps = {
   govIdVerified: boolean;
   roleLabel: string;
   avatarColor: string;
+  avatarUrl?: string | null;
   initials: string;
   /** Hide photo / use neutral avatar (anonymous mode) */
   maskAvatar?: boolean;
@@ -35,6 +37,7 @@ export function ProfileSummaryCard({
   govIdVerified,
   roleLabel,
   avatarColor,
+  avatarUrl,
   initials,
   maskAvatar = false,
   given = 0,
@@ -51,7 +54,9 @@ export function ProfileSummaryCard({
             { backgroundColor: maskAvatar ? '#9CA3AF' : avatarColor },
           ]}
         >
-          {isLoading && !fullName ? (
+          {!maskAvatar && avatarUrl ? (
+            <Image source={{ uri: avatarUrl }} style={styles.avatarImage} contentFit="cover" />
+          ) : isLoading && !fullName ? (
             <ActivityIndicator color="#FFFFFF" />
           ) : (
             <Text style={styles.avatarText}>{maskAvatar ? '?' : initials}</Text>
@@ -129,6 +134,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 16,
+    overflow: 'hidden',
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
   },
   avatarText: {
     fontSize: 24,

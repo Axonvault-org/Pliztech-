@@ -135,7 +135,7 @@ export default function CreateScreen() {
     if (amountNum > 10_000 && !canRequestHighAmountBeg(user)) {
       Alert.alert(
         'Amount above ₦10,000',
-        'To request more than ₦10,000 you need to verify your identity (NIN or government ID) and have at least two successful help requests or a donation on record. Complete verification in your profile when available.'
+        'To request more than ₦10,000 you need to verify your identity with NIN or international passport and have at least two successful help requests or a donation on record.'
       );
       return;
     }
@@ -262,12 +262,12 @@ export default function CreateScreen() {
 
           <Text style={styles.title}>Ask for Help</Text>
           <Text style={styles.subtitle}>
-            Tell us what we need. Keep it simple and honest
+            Tell us what you need the money for. Keep it simple and honest
           </Text>
 
           <RequestLimitAlert
             limit="₦10,000"
-            verifyMessage="Verify with NIN or government ID and complete two successful requests or a donation to request more."
+            verifyMessage="Verify with NIN or international passport and complete two successful requests or a donation to request more."
           />
 
           <Text style={styles.sectionTitle}>Select a Category</Text>

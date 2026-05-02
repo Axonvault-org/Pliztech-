@@ -242,7 +242,24 @@ export type MeUserStatsSummary = {
 
 /** Govt ID / NIN verification — returned when backend adds `verification` to GET /me */
 export type MeUserVerification = {
+  verificationType?: 'nin' | 'passport' | string | null;
+  status?: string;
+  isVerified?: boolean;
+  phoneVerified?: boolean;
   documentVerified: boolean;
+  faceLivenessPassed?: boolean;
+  verifiedAt?: string | null;
+  rejectionReason?: string | null;
+  attemptCount?: number;
+  updatedAt?: string;
+};
+
+export type MeUserAvatar = {
+  avatarType: 'photo' | 'initials' | 'library' | string;
+  avatarUrl: string | null;
+  avatarColor: string | null;
+  avatarLibraryId: string | null;
+  displayUrl: string;
 };
 
 /** GET /api/auth/me — user includes profile when completed */
@@ -251,4 +268,6 @@ export type MeUser = SignupUser & {
   stats?: MeUserStatsSummary | null;
   /** Present when API exposes UserVerification (NIN / passport / ID) */
   verification?: MeUserVerification | null;
+  /** Present when API exposes UserAvatar */
+  avatar?: MeUserAvatar | null;
 };

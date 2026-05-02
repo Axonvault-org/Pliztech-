@@ -3,8 +3,14 @@ import { isWebAuthEnvironment } from '@/lib/auth/web-auth';
 
 import { PlizApiError } from './types';
 
-export type KycVerificationType = 'bvn' | 'nin' | 'passport';
-export type KycVerificationStatus = 'pending' | 'under_review' | 'verified' | 'rejected';
+export type KycVerificationType = 'nin' | 'passport';
+export type KycVerificationStatus =
+  | 'pending'
+  | 'document_uploaded'
+  | 'liveness_passed'
+  | 'under_review'
+  | 'verified'
+  | 'rejected';
 
 export type KycVerificationRecord = {
   userId: string;
@@ -12,6 +18,9 @@ export type KycVerificationRecord = {
   status: KycVerificationStatus;
   isVerified: boolean;
   phoneVerified: boolean;
+  documentVerified: boolean;
+  faceLivenessPassed: boolean;
+  faceLivenessScore: number | null;
   verifiedAt: string | null;
   rejectionReason: string | null;
   attemptCount: number;
@@ -44,10 +53,39 @@ export type KycStatusPayload = {
   ui: KycUiMessage;
 };
 
-export type KycSubmitBvnBody = {
-  verificationType: 'bvn';
-  bvn: string;
+export type KycDocumentUploadBase = {
+  verificationType: KycVerificationType;
+  documentType: 'nin_front' | 'nin_back' | 'passport_biodata';
+  file: {
+    uri: string;
+    name: string;
+    type: string;
+  };
 };
+
+export type KycNinDocumentUpload = KycDocumentUploadBase & {
+  verificationType: 'nin';
+  documentType: 'nin_front' | 'nin_back';
+  nin: string;
+  ninDocumentType: 'slip' | 'card';
+  ninMiddleName?: string;
+  ninStateOfOrigin: string;
+  ninLGA: string;
+  ninEnrollmentDate: string;
+};
+
+export type KycPassportDocumentUpload = KycDocumentUploadBase & {
+  verificationType: 'passport';
+  documentType: 'passport_biodata';
+  passportMiddleName?: string;
+  passportNumber: string;
+  passportPlaceOfBirth: string;
+  passportIssueDate: string;
+  passportExpiry: string;
+  passportPlaceOfIssue: string;
+};
+
+export type KycDocumentUploadBody = KycNinDocumentUpload | KycPassportDocumentUpload;
 
 function authHeaders(accessToken: string): HeadersInit {
   return {
@@ -165,17 +203,46 @@ export async function verifyKycPhoneOtp(accessToken: string, otp: string): Promi
   }
 }
 
+function appendIfPresent(form: FormData, key: string, value: string | undefined): void {
+  const trimmed = value?.trim();
+  if (trimmed) form.append(key, trimmed);
+}
+
 /**
- * POST /api/kyc/submit — first identity submission
+ * POST /api/kyc/document/upload — upload NIN/passport scan.
  */
-export async function submitKyc(
+export async function uploadKycDocument(
   accessToken: string,
-  body: KycSubmitBvnBody
+  body: KycDocumentUploadBody
 ): Promise<KycVerificationRecord> {
-  const res = await fetch(apiUrl('/api/kyc/submit'), {
+  const form = new FormData();
+  form.append('document', body.file as unknown as Blob);
+  form.append('verificationType', body.verificationType);
+  form.append('documentType', body.documentType);
+
+  if (body.verificationType === 'nin') {
+    form.append('nin', body.nin.trim());
+    form.append('ninDocumentType', body.ninDocumentType);
+    appendIfPresent(form, 'ninMiddleName', body.ninMiddleName);
+    form.append('ninStateOfOrigin', body.ninStateOfOrigin.trim());
+    form.append('ninLGA', body.ninLGA.trim());
+    form.append('ninEnrollmentDate', body.ninEnrollmentDate.trim());
+  } else {
+    appendIfPresent(form, 'passportMiddleName', body.passportMiddleName);
+    form.append('passportNumber', body.passportNumber.trim().toUpperCase());
+    form.append('passportPlaceOfBirth', body.passportPlaceOfBirth.trim());
+    form.append('passportIssueDate', body.passportIssueDate.trim());
+    form.append('passportExpiry', body.passportExpiry.trim());
+    form.append('passportPlaceOfIssue', body.passportPlaceOfIssue.trim());
+  }
+
+  const res = await fetch(apiUrl('/api/kyc/document/upload'), {
     method: 'POST',
-    headers: authHeaders(accessToken),
-    body: JSON.stringify(body),
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: form,
     credentials: isWebAuthEnvironment() ? 'include' : 'omit',
   });
 
@@ -200,16 +267,16 @@ export async function submitKyc(
 }
 
 /**
- * PUT /api/kyc/update — resubmit after rejection
+ * POST /api/kyc/face-liveness — submit selfie image as base64.
  */
-export async function updateKyc(
+export async function verifyKycFaceLiveness(
   accessToken: string,
-  body: KycSubmitBvnBody
-): Promise<KycVerificationRecord> {
-  const res = await fetch(apiUrl('/api/kyc/update'), {
-    method: 'PUT',
+  imageBase64: string
+): Promise<{ passed: boolean; score?: number }> {
+  const res = await fetch(apiUrl('/api/kyc/face-liveness'), {
+    method: 'POST',
     headers: authHeaders(accessToken),
-    body: JSON.stringify(body),
+    body: JSON.stringify({ image: imageBase64 }),
     credentials: isWebAuthEnvironment() ? 'include' : 'omit',
   });
 
@@ -223,12 +290,84 @@ export async function updateKyc(
   const data = json as {
     success?: boolean;
     message?: string;
-    data?: { verification: KycVerificationRecord };
+    data?: { passed: boolean; score?: number };
   };
 
-  if (!res.ok || data.success !== true || !data.data?.verification) {
+  if (!res.ok || data.success !== true || !data.data) {
     throw new PlizApiError(data.message ?? `Request failed (${res.status})`, res.status);
   }
 
-  return data.data.verification;
+  return data.data;
+}
+
+/**
+ * POST /api/kyc/submit — final identity submission after document + liveness.
+ */
+export async function submitKyc(accessToken: string): Promise<KycVerificationRecord> {
+  const res = await fetch(apiUrl('/api/kyc/submit'), {
+    method: 'POST',
+    headers: authHeaders(accessToken),
+    body: JSON.stringify({}),
+    credentials: isWebAuthEnvironment() ? 'include' : 'omit',
+  });
+
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    throw new PlizApiError('Invalid response from server', res.status);
+  }
+
+  const data = json as {
+    success?: boolean;
+    message?: string;
+    data?: KycVerificationRecord | { verification?: KycVerificationRecord };
+  };
+
+  const verification =
+    data.data && 'verification' in data.data
+      ? data.data.verification
+      : (data.data as KycVerificationRecord | undefined);
+
+  if (!res.ok || data.success !== true || !verification) {
+    throw new PlizApiError(data.message ?? `Request failed (${res.status})`, res.status);
+  }
+
+  return verification;
+}
+
+/**
+ * PUT /api/kyc/update — reset rejected KYC so the user can resubmit.
+ */
+export async function resetKycAfterRejection(accessToken: string): Promise<KycVerificationRecord> {
+  const res = await fetch(apiUrl('/api/kyc/update'), {
+    method: 'PUT',
+    headers: authHeaders(accessToken),
+    body: JSON.stringify({}),
+    credentials: isWebAuthEnvironment() ? 'include' : 'omit',
+  });
+
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    throw new PlizApiError('Invalid response from server', res.status);
+  }
+
+  const data = json as {
+    success?: boolean;
+    message?: string;
+    data?: KycVerificationRecord | { verification?: KycVerificationRecord };
+  };
+
+  const verification =
+    data.data && 'verification' in data.data
+      ? data.data.verification
+      : (data.data as KycVerificationRecord | undefined);
+
+  if (!res.ok || data.success !== true || !verification) {
+    throw new PlizApiError(data.message ?? `Request failed (${res.status})`, res.status);
+  }
+
+  return verification;
 }

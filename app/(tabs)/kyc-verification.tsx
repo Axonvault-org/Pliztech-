@@ -1,4 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import * as ImagePicker from 'expo-image-picker';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
@@ -18,11 +19,14 @@ import { Screen } from '@/components/Screen';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
 import {
   getKycStatus,
+  resetKycAfterRejection,
   resendKycPhoneOtp,
   sendKycPhoneOtp,
   submitKyc,
-  updateKyc,
+  uploadKycDocument,
+  verifyKycFaceLiveness,
   verifyKycPhoneOtp,
+  type KycVerificationType,
   type KycStatusPayload,
 } from '@/lib/api/kyc';
 import { PlizApiError } from '@/lib/api/types';
@@ -47,9 +51,19 @@ export default function KycVerificationScreen() {
   const [status, setStatus] = useState<KycStatusPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [otp, setOtp] = useState('');
-  const [bvn, setBvn] = useState('');
+  const [verificationType, setVerificationType] = useState<KycVerificationType>('nin');
+  const [nin, setNin] = useState('');
+  const [ninDocumentType, setNinDocumentType] = useState<'slip' | 'card'>('slip');
+  const [ninStateOfOrigin, setNinStateOfOrigin] = useState('');
+  const [ninLGA, setNinLGA] = useState('');
+  const [ninEnrollmentDate, setNinEnrollmentDate] = useState('');
+  const [passportNumber, setPassportNumber] = useState('');
+  const [passportPlaceOfBirth, setPassportPlaceOfBirth] = useState('');
+  const [passportIssueDate, setPassportIssueDate] = useState('');
+  const [passportExpiry, setPassportExpiry] = useState('');
+  const [passportPlaceOfIssue, setPassportPlaceOfIssue] = useState('');
   const [otpBusy, setOtpBusy] = useState(false);
-  const [bvnBusy, setBvnBusy] = useState(false);
+  const [kycBusy, setKycBusy] = useState(false);
   const [resendSec, setResendSec] = useState(0);
 
   useEffect(() => {
@@ -101,13 +115,23 @@ export default function KycVerificationScreen() {
 
   const showPhoneSection = steps[0]?.completed === true && steps[1]?.completed === false;
 
-  const showBvnForm =
+  const showDocumentForm =
     steps[1]?.completed === true &&
+    steps[2]?.completed !== true &&
     !verification?.isVerified &&
     !identityReviewInFlight(verification) &&
     (verification?.status !== 'rejected' || verification?.canRetry === true);
 
-  const useUpdateEndpoint = verification?.status === 'rejected' && verification?.canRetry;
+  const showFaceLiveness =
+    steps[2]?.completed === true &&
+    steps[3]?.completed !== true &&
+    !verification?.isVerified &&
+    !identityReviewInFlight(verification);
+
+  const showFinalSubmit =
+    steps[3]?.completed === true &&
+    !verification?.isVerified &&
+    !identityReviewInFlight(verification);
 
   const handleUiPrimary = async () => {
     if (!ui) return;
@@ -129,7 +153,23 @@ export default function KycVerificationScreen() {
       return;
     }
 
-    if (url === '/kyc/start' || url === '/kyc/update') {
+    if (url === '/kyc/update') {
+      const token = await getAccessToken();
+      if (!token) return;
+      setKycBusy(true);
+      try {
+        await resetKycAfterRejection(token);
+        await loadStatus();
+      } catch (e) {
+        const msg = e instanceof PlizApiError ? e.message : 'Could not restart verification.';
+        Alert.alert('Could not restart', msg);
+      } finally {
+        setKycBusy(false);
+      }
+      return;
+    }
+
+    if (url === '/kyc/start') {
       if (!steps[0]?.completed) {
         router.push('/(tabs)/personal-info');
         return;
@@ -141,10 +181,10 @@ export default function KycVerificationScreen() {
         );
         return;
       }
-      if (showBvnForm) {
+      if (showDocumentForm) {
         Alert.alert(
-          'Enter your BVN',
-          'Use the Bank Verification Number field below, then submit.'
+          'Upload your document',
+          'Choose NIN or international passport below, fill the required details, and upload a clear image.'
         );
         return;
       }
@@ -200,7 +240,7 @@ export default function KycVerificationScreen() {
       setOtp('');
       await loadStatus();
       await refreshUser();
-      Alert.alert('Phone verified', 'You can now verify your identity with your BVN.');
+      Alert.alert('Phone verified', 'You can now verify your identity with NIN or international passport.');
     } catch (e) {
       const msg = e instanceof PlizApiError ? e.message : 'Verification failed.';
       Alert.alert('Could not verify', msg);
@@ -209,39 +249,141 @@ export default function KycVerificationScreen() {
     }
   };
 
-  const onSubmitBvn = async () => {
+  const pickImageFile = async (): Promise<{ uri: string; name: string; type: string } | null> => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Permission needed', 'Allow photo access so you can upload your document.');
+      return null;
+    }
+    const picked = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: false,
+      quality: 0.9,
+    });
+    if (picked.canceled || !picked.assets[0]) return null;
+    const asset = picked.assets[0];
+    const lower = asset.uri.toLowerCase();
+    const type =
+      asset.mimeType ??
+      (lower.endsWith('.png') ? 'image/png' : lower.endsWith('.webp') ? 'image/webp' : 'image/jpeg');
+    return {
+      uri: asset.uri,
+      name: asset.fileName ?? `kyc-${Date.now()}.jpg`,
+      type,
+    };
+  };
+
+  const onUploadDocument = async (documentType?: 'nin_front' | 'nin_back' | 'passport_biodata') => {
     const token = await getAccessToken();
     if (!token) return;
-    const digits = bvn.replace(/\D/g, '');
-    if (digits.length !== 11) {
-      Alert.alert('Invalid BVN', 'BVN must be exactly 11 digits.');
-      return;
-    }
-    setBvnBusy(true);
+
+    const file = await pickImageFile();
+    if (!file) return;
+
+    setKycBusy(true);
     try {
-      if (useUpdateEndpoint) {
-        await updateKyc(token, { verificationType: 'bvn', bvn: digits });
+      if (verificationType === 'nin') {
+        const digits = nin.replace(/\D/g, '');
+        if (digits.length !== 11) {
+          Alert.alert('Invalid NIN', 'NIN must be exactly 11 digits.');
+          return;
+        }
+        if (!ninStateOfOrigin.trim() || !ninLGA.trim() || !ninEnrollmentDate.trim()) {
+          Alert.alert('Missing details', 'Enter state of origin, LGA, and enrollment date.');
+          return;
+        }
+        await uploadKycDocument(token, {
+          verificationType: 'nin',
+          documentType: documentType === 'nin_back' ? 'nin_back' : 'nin_front',
+          file,
+          nin: digits,
+          ninDocumentType,
+          ninStateOfOrigin,
+          ninLGA,
+          ninEnrollmentDate,
+        });
       } else {
-        await submitKyc(token, { verificationType: 'bvn', bvn: digits });
+        if (
+          !passportNumber.trim() ||
+          !passportPlaceOfBirth.trim() ||
+          !passportIssueDate.trim() ||
+          !passportExpiry.trim() ||
+          !passportPlaceOfIssue.trim()
+        ) {
+          Alert.alert('Missing details', 'Complete all passport fields before uploading.');
+          return;
+        }
+        await uploadKycDocument(token, {
+          verificationType: 'passport',
+          documentType: 'passport_biodata',
+          file,
+          passportNumber,
+          passportPlaceOfBirth,
+          passportIssueDate,
+          passportExpiry,
+          passportPlaceOfIssue,
+        });
       }
-      setBvn('');
       await loadStatus();
       await refreshUser();
-      Alert.alert(
-        'Submitted',
-        'We are verifying your details. This usually takes less than two minutes.'
-      );
+      Alert.alert('Document uploaded', 'Next, complete face liveness when prompted.');
+    } catch (e) {
+      const msg = e instanceof PlizApiError ? e.message : 'Upload failed.';
+      Alert.alert('Could not upload', msg);
+    } finally {
+      setKycBusy(false);
+    }
+  };
+
+  const onFaceLiveness = async () => {
+    const token = await getAccessToken();
+    if (!token) return;
+    const file = await pickImageFile();
+    if (!file) return;
+    setKycBusy(true);
+    try {
+      const response = await fetch(file.uri);
+      const blob = await response.blob();
+      const reader = new FileReader();
+      const imageBase64 = await new Promise<string>((resolve, reject) => {
+        reader.onerror = () => reject(new Error('Could not read selfie image.'));
+        reader.onloadend = () => {
+          const result = String(reader.result ?? '');
+          resolve(result.includes(',') ? result.split(',')[1] ?? '' : result);
+        };
+        reader.readAsDataURL(blob);
+      });
+      await verifyKycFaceLiveness(token, imageBase64);
+      await loadStatus();
+      Alert.alert('Selfie confirmed', 'You can now submit your verification for review.');
+    } catch (e) {
+      const msg = e instanceof PlizApiError ? e.message : 'Face liveness failed.';
+      Alert.alert('Could not verify selfie', msg);
+    } finally {
+      setKycBusy(false);
+    }
+  };
+
+  const onSubmitKyc = async () => {
+    const token = await getAccessToken();
+    if (!token) return;
+    setKycBusy(true);
+    try {
+      await submitKyc(token);
+      await loadStatus();
+      await refreshUser();
+      Alert.alert('Submitted', 'We are verifying your details. You will be notified shortly.');
     } catch (e) {
       const msg = e instanceof PlizApiError ? e.message : 'Submission failed.';
       Alert.alert('Could not submit', msg);
     } finally {
-      setBvnBusy(false);
+      setKycBusy(false);
     }
   };
 
   return (
     <Screen backgroundColor="#F9FAFB" scrollable>
-      <AppHeaderTitleRow title="Identity verification" backIconColor="#9CA3AF" />
+      <AppHeaderTitleRow title="Account Verification" backIconColor="#9CA3AF" />
 
       <View style={styles.content}>
         {loading && !status ? (
@@ -342,33 +484,193 @@ export default function KycVerificationScreen() {
               </View>
             ) : null}
 
-            {showBvnForm ? (
+            {showDocumentForm ? (
               <View style={styles.actionCard}>
-                <Text style={styles.actionTitle}>BVN verification</Text>
+                <Text style={styles.actionTitle}>Means of verification</Text>
                 <Text style={styles.actionHint}>
-                  Enter the 11-digit Bank Verification Number linked to your bank account. NIN and
-                  passport with document upload can be added from the web app when available.
+                  Choose NIN or international passport, then upload a clear image of the document.
                 </Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="11-digit BVN"
-                  placeholderTextColor="#9CA3AF"
-                  keyboardType="number-pad"
-                  maxLength={11}
-                  value={bvn}
-                  onChangeText={(t) => setBvn(t.replace(/\D/g, ''))}
-                />
+                <View style={styles.segmentRow}>
+                  {(['nin', 'passport'] as const).map((type) => (
+                    <Pressable
+                      key={type}
+                      style={[
+                        styles.segment,
+                        verificationType === type && styles.segmentSelected,
+                      ]}
+                      onPress={() => setVerificationType(type)}
+                    >
+                      <Text
+                        style={[
+                          styles.segmentText,
+                          verificationType === type && styles.segmentTextSelected,
+                        ]}
+                      >
+                        {type === 'nin' ? 'NIN' : "Int'l passport"}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                {verificationType === 'nin' ? (
+                  <>
+                    <View style={styles.segmentRow}>
+                      {(['slip', 'card'] as const).map((type) => (
+                        <Pressable
+                          key={type}
+                          style={[
+                            styles.segment,
+                            ninDocumentType === type && styles.segmentSelected,
+                          ]}
+                          onPress={() => setNinDocumentType(type)}
+                        >
+                          <Text
+                            style={[
+                              styles.segmentText,
+                              ninDocumentType === type && styles.segmentTextSelected,
+                            ]}
+                          >
+                            {type === 'slip' ? 'NIN slip' : 'NIN card'}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="11-digit NIN"
+                      placeholderTextColor="#9CA3AF"
+                      keyboardType="number-pad"
+                      maxLength={11}
+                      value={nin}
+                      onChangeText={(t) => setNin(t.replace(/\D/g, ''))}
+                    />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="State of origin"
+                      placeholderTextColor="#9CA3AF"
+                      value={ninStateOfOrigin}
+                      onChangeText={setNinStateOfOrigin}
+                    />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="LGA"
+                      placeholderTextColor="#9CA3AF"
+                      value={ninLGA}
+                      onChangeText={setNinLGA}
+                    />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Enrollment date (YYYY-MM-DD)"
+                      placeholderTextColor="#9CA3AF"
+                      value={ninEnrollmentDate}
+                      onChangeText={setNinEnrollmentDate}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Passport number (A12345678)"
+                      placeholderTextColor="#9CA3AF"
+                      autoCapitalize="characters"
+                      value={passportNumber}
+                      onChangeText={setPassportNumber}
+                    />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Place of birth"
+                      placeholderTextColor="#9CA3AF"
+                      value={passportPlaceOfBirth}
+                      onChangeText={setPassportPlaceOfBirth}
+                    />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Issue date (YYYY-MM-DD)"
+                      placeholderTextColor="#9CA3AF"
+                      value={passportIssueDate}
+                      onChangeText={setPassportIssueDate}
+                    />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Expiry date (YYYY-MM-DD)"
+                      placeholderTextColor="#9CA3AF"
+                      value={passportExpiry}
+                      onChangeText={setPassportExpiry}
+                    />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Place of issue"
+                      placeholderTextColor="#9CA3AF"
+                      value={passportPlaceOfIssue}
+                      onChangeText={setPassportPlaceOfIssue}
+                    />
+                  </>
+                )}
+
                 <Pressable
                   style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}
-                  onPress={() => void onSubmitBvn()}
-                  disabled={bvnBusy}
+                  onPress={() => void onUploadDocument(verificationType === 'passport' ? 'passport_biodata' : 'nin_front')}
+                  disabled={kycBusy}
                 >
-                  {bvnBusy ? (
+                  {kycBusy ? (
                     <ActivityIndicator color="#FFFFFF" />
                   ) : (
                     <Text style={styles.primaryBtnText}>
-                      {useUpdateEndpoint ? 'Resubmit BVN' : 'Submit BVN'}
+                      {verificationType === 'passport' ? 'Upload passport page' : 'Upload front document'}
                     </Text>
+                  )}
+                </Pressable>
+                {verificationType === 'nin' && ninDocumentType === 'card' ? (
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.secondaryBtn,
+                      styles.secondaryBtnTop,
+                      pressed && styles.pressed,
+                    ]}
+                    onPress={() => void onUploadDocument('nin_back')}
+                    disabled={kycBusy}
+                  >
+                    <Text style={styles.secondaryBtnText}>Upload back of NIN card</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : null}
+
+            {showFaceLiveness ? (
+              <View style={styles.actionCard}>
+                <Text style={styles.actionTitle}>Face liveness</Text>
+                <Text style={styles.actionHint}>
+                  Upload a clear selfie so we can confirm that the document belongs to you.
+                </Text>
+                <Pressable
+                  style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}
+                  onPress={() => void onFaceLiveness()}
+                  disabled={kycBusy}
+                >
+                  {kycBusy ? (
+                    <ActivityIndicator color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.primaryBtnText}>Upload selfie</Text>
+                  )}
+                </Pressable>
+              </View>
+            ) : null}
+
+            {showFinalSubmit ? (
+              <View style={styles.actionCard}>
+                <Text style={styles.actionTitle}>Submit verification</Text>
+                <Text style={styles.actionHint}>
+                  Send your verified document and selfie for final identity checks.
+                </Text>
+                <Pressable
+                  style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}
+                  onPress={() => void onSubmitKyc()}
+                  disabled={kycBusy}
+                >
+                  {kycBusy ? (
+                    <ActivityIndicator color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.primaryBtnText}>Submit verification</Text>
                   )}
                 </Pressable>
               </View>
@@ -531,6 +833,34 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     backgroundColor: '#F9FAFB',
   },
+  segmentRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 12,
+  },
+  segment: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 11,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  segmentSelected: {
+    backgroundColor: '#355C7D',
+    borderColor: '#355C7D',
+  },
+  segmentText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#6B7280',
+  },
+  segmentTextSelected: {
+    color: '#FFFFFF',
+  },
   secondaryBtn: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -545,6 +875,9 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: '#EA580C',
+  },
+  secondaryBtnTop: {
+    marginTop: 10,
   },
   otpActions: {
     flexDirection: 'row',

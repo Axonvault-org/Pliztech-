@@ -158,13 +158,21 @@ export default function PaymentCallbackScreen() {
         ) : (
           <>
             <Text style={styles.emoji}>!</Text>
-            <Text style={styles.title}>Could not confirm</Text>
+            <Text style={styles.title}>Payment not confirmed</Text>
             <Text style={styles.body}>{message}</Text>
             {reference ? (
               <Text style={styles.ref} selectable>
                 Reference: {reference}
               </Text>
             ) : null}
+            <Pressable
+              style={styles.supportBtn}
+              onPress={() => router.push('/(tabs)/report-issue' as import('expo-router').Href)}
+              accessibilityRole="button"
+              accessibilityLabel="Contact support"
+            >
+              <Text style={styles.supportBtnLabel}>Contact support</Text>
+            </Pressable>
             <Pressable
               style={styles.primaryBtn}
               onPress={goHome}
@@ -226,6 +234,22 @@ const styles = StyleSheet.create({
   },
   primaryBtnLabel: {
     color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  supportBtn: {
+    borderWidth: 1,
+    borderColor: '#2E8BEA',
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    borderRadius: 12,
+    width: '100%',
+    maxWidth: 320,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  supportBtnLabel: {
+    color: '#2E8BEA',
     fontSize: 16,
     fontWeight: '700',
   },
