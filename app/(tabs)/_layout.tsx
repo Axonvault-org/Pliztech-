@@ -52,6 +52,10 @@ export default function TabLayout() {
       <Stack.Screen name="stories-feed" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="share-story" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="kyc-verification" options={{ headerShown: false, presentation: 'card' }} />
+      <Stack.Screen name="profile-picture" options={{ headerShown: false, presentation: 'card' }} />
+      <Stack.Screen name="support" options={{ headerShown: false, presentation: 'card' }} />
+      <Stack.Screen name="report-issue" options={{ headerShown: false, presentation: 'card' }} />
+      <Stack.Screen name="legal" options={{ headerShown: false, presentation: 'card' }} />
     </Stack>
   );
 }

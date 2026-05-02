@@ -21,6 +21,7 @@ import {
   useCurrentUser,
 } from '@/contexts/CurrentUserContext';
 import { formatCardBrandLabel, getSavedCards } from '@/lib/api/payment-methods';
+import { getProfilePicture, type ProfilePicture } from '@/lib/api/profile-picture';
 import { updateProfile } from '@/lib/api/profile';
 import { getAccessToken } from '@/lib/auth/access-token';
 import {
@@ -38,6 +39,7 @@ export default function ProfileScreen() {
   const [pushNotifications, setPushNotifications] = useState(true);
   const [anonymousMode, setAnonymousMode] = useState(false);
   const [paymentCardsSubtitle, setPaymentCardsSubtitle] = useState(PAYMENT_CARDS_SUBTITLE_DEFAULT);
+  const [profilePicture, setProfilePicture] = useState<ProfilePicture | null>(null);
 
   const loadPaymentCardsSubtitle = useCallback(
     async (retryAfterRefresh = false) => {
@@ -79,6 +81,27 @@ export default function ProfileScreen() {
     [signOut]
   );
 
+  const loadProfilePicture = useCallback(
+    async (retryAfterRefresh = false) => {
+      try {
+        const token = await getAccessToken();
+        if (!token) {
+          setProfilePicture(null);
+          return;
+        }
+        setProfilePicture(await getProfilePicture(token));
+      } catch (e) {
+        if (isUnauthorizedSessionError(e) && !retryAfterRefresh) {
+          const recovered = await recoverFromUnauthorized(signOut);
+          if (recovered) {
+            await loadProfilePicture(true);
+          }
+        }
+      }
+    },
+    [signOut]
+  );
+
   useFocusEffect(
     useCallback(() => {
       const now = Date.now();
@@ -87,7 +110,8 @@ export default function ProfileScreen() {
         void refreshUser();
       }
       void loadPaymentCardsSubtitle();
-    }, [refreshUser, loadPaymentCardsSubtitle])
+      void loadProfilePicture();
+    }, [refreshUser, loadPaymentCardsSubtitle, loadProfilePicture])
   );
 
   useEffect(() => {
@@ -100,6 +124,7 @@ export default function ProfileScreen() {
   const roleLabel = displayMemberRoleLabel(user);
   const seed = user?.username ?? user?.email ?? '';
   const avatarColor = seed ? avatarColorFromSeed(seed) : '#2E8BEA';
+  const avatarUrl = profilePicture?.displayUrl ?? user?.avatar?.displayUrl ?? null;
   const initials = header.initials || (fullName ? initialsFromDisplayName(fullName) : '?');
   const showCardLoading = isLoading && !user;
 
@@ -120,6 +145,7 @@ export default function ProfileScreen() {
           govIdVerified={isDocumentVerified(user)}
           roleLabel={roleLabel}
           avatarColor={avatarColor}
+          avatarUrl={avatarUrl}
           initials={initials}
           maskAvatar={header.maskAvatar}
           given={givenNaira}
@@ -138,6 +164,12 @@ export default function ProfileScreen() {
             title="Personal Information"
             subtitle="Edit your name, email, phone & change location"
             onPress={() => router.push('/(tabs)/personal-info')}
+          />
+          <ProfileRow
+            icon="camera-outline"
+            title="Profile Picture"
+            subtitle="Upload a photo or choose an avatar"
+            onPress={() => router.push('/(tabs)/profile-picture' as import('expo-router').Href)}
           />
           <ProfileRow
             icon="wallet-outline"
@@ -211,13 +243,14 @@ export default function ProfileScreen() {
           <ProfileRow
             icon="help-circle-outline"
             title="Help Center"
-            subtitle="FAQs and guides"
-            onPress={() => {}}
+            subtitle="FAQ and support"
+            onPress={() => router.push('/(tabs)/support' as import('expo-router').Href)}
           />
           <ProfileRow
             icon="document-text-outline"
             title="Terms & Privacy"
-            onPress={() => {}}
+            subtitle="Terms of Service and Privacy Policy"
+            onPress={() => router.push('/(tabs)/legal' as import('expo-router').Href)}
             isLast
           />
         </ProfileSection>

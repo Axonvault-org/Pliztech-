@@ -85,7 +85,7 @@ export function ConfirmRequestModal({
           >
             <Text style={styles.title}>Confirm your Request</Text>
             <Text style={styles.subtitle}>
-              Once submitted, you cannot edit or delete this request
+              Once submitted, you cannot edit or delete this request. Review can take up to 48 hours.
             </Text>
 
             <View style={styles.detailCard}>
