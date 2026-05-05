@@ -27,6 +27,7 @@ export type CreateBegBody = {
   amountRequested: number;
   /** 24, 72, or 168 (7 days) — sent when backend controller forwards to BegService */
   expiryHours?: BegExpiryHours;
+  isAnonymous?: boolean;
   mediaType?: 'video' | 'audio' | 'text';
   mediaUrl?: string;
 };
@@ -39,6 +40,7 @@ export type CreatedBeg = {
   amountRaised: number;
   status: string;
   approved: boolean;
+  isAnonymous: boolean;
   mediaType: string | null;
   mediaUrl: string | null;
   expiresAt: string;
@@ -88,6 +90,7 @@ export async function createBeg(
       category: body.category,
       amountRequested: body.amountRequested,
       ...(body.expiryHours != null ? { expiryHours: body.expiryHours } : {}),
+      isAnonymous: body.isAnonymous ?? false,
       mediaType: body.mediaType ?? 'text',
       ...(body.mediaUrl ? { mediaUrl: body.mediaUrl } : {}),
     }),

@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { router, type Href } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import {
   Alert,
@@ -93,6 +93,11 @@ function countWords(text: string): number {
 
 export default function CreateScreen() {
   const { user, signOut } = useCurrentUser();
+  const anonymousModeEnabled = user?.profile?.isAnonymous ?? false;
+  const createDefaults = useMemo<CreateRequestFormData>(
+    () => ({ ...DEFAULT_CREATE_VALUES, showName: !anonymousModeEnabled }),
+    [anonymousModeEnabled]
+  );
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [confirmVisible, setConfirmVisible] = useState(false);
@@ -114,11 +119,17 @@ export default function CreateScreen() {
     formState: { errors },
   } = useForm<CreateRequestFormData>({
     resolver: zodResolver(createRequestSchema),
-    defaultValues: DEFAULT_CREATE_VALUES,
+    defaultValues: createDefaults,
   });
 
   const description = watch('description');
   const wordCount = countWords(description ?? '');
+
+  useEffect(() => {
+    if (anonymousModeEnabled) {
+      setValue('showName', false, { shouldDirty: true, shouldValidate: true });
+    }
+  }, [anonymousModeEnabled, setValue]);
 
   const onContinue = async (data: CreateRequestFormData) => {
     if (isSubmitting) return;
@@ -146,7 +157,10 @@ export default function CreateScreen() {
       return;
     }
 
-    setPendingSubmit(data);
+    setPendingSubmit({
+      ...data,
+      showName: anonymousModeEnabled ? false : data.showName,
+    });
     setConfirmVisible(true);
   };
 
@@ -172,6 +186,7 @@ export default function CreateScreen() {
           category: uiCategoryToApiCategory(data.categoryId),
           amountRequested,
           expiryHours,
+          isAnonymous: !data.showName,
           mediaType: 'text',
         })
       );
@@ -202,7 +217,7 @@ export default function CreateScreen() {
 
   const clearCreateFormAndLiveState = () => {
     setLiveSuccess(null);
-    reset(DEFAULT_CREATE_VALUES);
+    reset(createDefaults);
     setSelectedCategory(null);
   };
 
@@ -363,12 +378,23 @@ export default function CreateScreen() {
             </Text>
           </View>
 
-          <View style={styles.toggleRow}>
+          <View style={[styles.toggleRow, anonymousModeEnabled && styles.toggleRowLocked]}>
             <View style={styles.toggleLeft}>
-              <Ionicons name="eye-outline" size={22} color={COLORS.heading} style={styles.toggleIcon} />
+              <Ionicons
+                name={anonymousModeEnabled ? 'eye-off-outline' : 'eye-outline'}
+                size={22}
+                color={anonymousModeEnabled ? '#9CA3AF' : COLORS.heading}
+                style={styles.toggleIcon}
+              />
               <View>
-                <Text style={styles.toggleTitle}>Show my name</Text>
-                <Text style={styles.toggleSubtitle}>Givers will see your first name</Text>
+                <Text style={[styles.toggleTitle, anonymousModeEnabled && styles.toggleTitleLocked]}>
+                  Show my name
+                </Text>
+                <Text style={styles.toggleSubtitle}>
+                  {anonymousModeEnabled
+                    ? 'Disabled because Anonymous Mode is on'
+                    : 'Givers will see your first name'}
+                </Text>
               </View>
             </View>
             <Controller
@@ -376,8 +402,9 @@ export default function CreateScreen() {
               name="showName"
               render={({ field: { value, onChange } }) => (
                 <Switch
-                  value={value}
-                  onValueChange={onChange}
+                  value={anonymousModeEnabled ? false : value}
+                  onValueChange={anonymousModeEnabled ? undefined : onChange}
+                  disabled={anonymousModeEnabled}
                   trackColor={{ false: '#E5E7EB', true: COLORS.brandBlue }}
                   thumbColor="#FFFFFF"
                   accessibilityLabel="Show my name"
@@ -494,6 +521,9 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     paddingVertical: 12,
   },
+  toggleRowLocked: {
+    backgroundColor: '#F9FAFB',
+  },
   toggleLeft: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -506,6 +536,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: COLORS.heading,
+  },
+  toggleTitleLocked: {
+    color: '#9CA3AF',
   },
   toggleSubtitle: {
     fontSize: 13,
