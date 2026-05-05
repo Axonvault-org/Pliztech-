@@ -64,6 +64,7 @@ const REQUEST_DETAIL_MAX_WIDTH = 960;
 
 export default function RequestDetailScreen() {
   const { user, signOut } = useCurrentUser();
+  const anonymousModeEnabled = user?.profile?.isAnonymous ?? false;
   const params = useLocalSearchParams<{ id: string }>();
   const id = typeof params.id === 'string' ? params.id : params.id?.[0];
 
@@ -129,6 +130,12 @@ export default function RequestDetailScreen() {
   } | null>(null);
   const customAmountRef = useRef<TextInput>(null);
 
+  useEffect(() => {
+    if (anonymousModeEnabled) {
+      setShowName(false);
+    }
+  }, [anonymousModeEnabled]);
+
   const amountNeeded = request ? Math.max(0, request.goal - request.raised) : 0;
 
   const onContinueDonation = useCallback(async () => {
@@ -148,13 +155,14 @@ export default function RequestDetailScreen() {
     }
 
     setDonationSubmitting(true);
+    const effectiveShowName = anonymousModeEnabled ? false : showName;
     try {
       const result = await withUnauthorizedRecovery(signOut, (token) =>
         initializeDonation(token, {
           begId: id,
           amount: rawAmount,
           paymentMethod: paymentMethod === 'bank' ? 'bank' : 'card',
-          isAnonymous: !showName,
+          isAnonymous: !effectiveShowName,
         })
       );
 
@@ -165,7 +173,7 @@ export default function RequestDetailScreen() {
               amount: rawAmount,
               recipientName: request.name,
               begId: id,
-              showRecipientName: showName,
+              showRecipientName: effectiveShowName,
             });
           } catch {
             /* still open Paystack — storage must not block checkout */
@@ -179,7 +187,7 @@ export default function RequestDetailScreen() {
           setDonationThankYou({
             amount: rawAmount,
             recipientName: request.name,
-            showRecipientName: showName,
+            showRecipientName: effectiveShowName,
           });
         } else {
           Alert.alert(
@@ -202,6 +210,7 @@ export default function RequestDetailScreen() {
     selectedAmount,
     customAmount,
     showName,
+    anonymousModeEnabled,
     request,
     loadRequest,
     signOut,
@@ -521,19 +530,28 @@ export default function RequestDetailScreen() {
               />
 
               <View style={styles.privacyCard}>
-                <View style={styles.toggleRow}>
+                <View style={[styles.toggleRow, anonymousModeEnabled && styles.toggleRowLocked]}>
                   <View style={styles.toggleLeft}>
-                    <Ionicons name="eye-outline" size={22} color="#1F2937" />
+                    <Ionicons
+                      name={anonymousModeEnabled ? 'eye-off-outline' : 'eye-outline'}
+                      size={22}
+                      color={anonymousModeEnabled ? '#9CA3AF' : '#1F2937'}
+                    />
                     <View style={styles.toggleTextWrap}>
-                      <Text style={styles.toggleTitle}>Show my name</Text>
+                      <Text style={[styles.toggleTitle, anonymousModeEnabled && styles.toggleTitleLocked]}>
+                        Show my name
+                      </Text>
                       <Text style={styles.toggleSubtitle}>
-                        If off, your display name stays private when donating anonymously
+                        {anonymousModeEnabled
+                          ? 'Disabled because Anonymous Mode is on'
+                          : 'If off, your display name stays private when donating anonymously'}
                       </Text>
                     </View>
                   </View>
                   <Switch
-                    value={showName}
-                    onValueChange={setShowName}
+                    value={anonymousModeEnabled ? false : showName}
+                    onValueChange={anonymousModeEnabled ? undefined : setShowName}
+                    disabled={anonymousModeEnabled}
                     trackColor={{ false: '#E5E7EB', true: '#2E8BEA' }}
                     thumbColor="#FFFFFF"
                     ios_backgroundColor="#E5E7EB"
@@ -891,6 +909,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  toggleRowLocked: {
+    opacity: 0.86,
+  },
   toggleLeft: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -905,6 +926,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#1F2937',
+  },
+  toggleTitleLocked: {
+    color: '#6B7280',
   },
   toggleSubtitle: {
     fontSize: 13,
