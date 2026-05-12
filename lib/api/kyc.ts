@@ -216,7 +216,12 @@ export async function uploadKycDocument(
   body: KycDocumentUploadBody
 ): Promise<KycVerificationRecord> {
   const form = new FormData();
-  form.append('document', body.file as unknown as Blob);
+  if (isWebAuthEnvironment()) {
+    const blob = await fetch(body.file.uri).then((response) => response.blob());
+    form.append('document', blob, body.file.name);
+  } else {
+    form.append('document', body.file as unknown as Blob);
+  }
   form.append('verificationType', body.verificationType);
   form.append('documentType', body.documentType);
 
