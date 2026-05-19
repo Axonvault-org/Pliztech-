@@ -69,9 +69,8 @@ export type KycNinDocumentUpload = KycDocumentUploadBase & {
   nin: string;
   ninDocumentType: 'slip' | 'card';
   ninMiddleName?: string;
-  ninStateOfOrigin: string;
-  ninLGA: string;
-  ninEnrollmentDate: string;
+  ninStateOfOrigin?: string;
+  ninLGA?: string;
 };
 
 export type KycPassportDocumentUpload = KycDocumentUploadBase & {
@@ -208,6 +207,16 @@ function appendIfPresent(form: FormData, key: string, value: string | undefined)
   if (trimmed) form.append(key, trimmed);
 }
 
+function isKycVerificationRecord(value: unknown): value is KycVerificationRecord {
+  return (
+    typeof value === 'object' &&
+    value != null &&
+    'userId' in value &&
+    'status' in value &&
+    'documentVerified' in value
+  );
+}
+
 /**
  * POST /api/kyc/document/upload — upload NIN/passport scan.
  */
@@ -229,9 +238,8 @@ export async function uploadKycDocument(
     form.append('nin', body.nin.trim());
     form.append('ninDocumentType', body.ninDocumentType);
     appendIfPresent(form, 'ninMiddleName', body.ninMiddleName);
-    form.append('ninStateOfOrigin', body.ninStateOfOrigin.trim());
-    form.append('ninLGA', body.ninLGA.trim());
-    form.append('ninEnrollmentDate', body.ninEnrollmentDate.trim());
+    appendIfPresent(form, 'ninStateOfOrigin', body.ninStateOfOrigin);
+    appendIfPresent(form, 'ninLGA', body.ninLGA);
   } else {
     appendIfPresent(form, 'passportMiddleName', body.passportMiddleName);
     form.append('passportNumber', body.passportNumber.trim().toUpperCase());
@@ -261,14 +269,18 @@ export async function uploadKycDocument(
   const data = json as {
     success?: boolean;
     message?: string;
-    data?: { verification: KycVerificationRecord };
+    data?: KycVerificationRecord | { verification?: KycVerificationRecord };
   };
 
-  if (!res.ok || data.success !== true || !data.data?.verification) {
+  const verification = isKycVerificationRecord(data.data)
+    ? data.data
+    : data.data?.verification;
+
+  if (!res.ok || data.success !== true || !verification) {
     throw new PlizApiError(data.message ?? `Request failed (${res.status})`, res.status);
   }
 
-  return data.data.verification;
+  return verification;
 }
 
 /**
