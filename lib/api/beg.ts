@@ -233,6 +233,9 @@ export type BegFeedItem = {
   isAnonymous?: boolean;
   firstName?: string;
   lastName?: string;
+  ownerAvatarUrl?: string;
+  /** Legacy/alternate API key */
+  owner_avatar_url?: string;
   /** Legacy — newer begs may omit title */
   title?: string;
   description: string | null;
@@ -315,7 +318,7 @@ export async function getBegsFeed(options?: {
     throw new PlizApiError(data.message ?? `Request failed (${res.status})`, res.status);
   }
 
-  const begs = data.data?.begs ?? [];
+  const begs = (data.data?.begs ?? []).map(normalizeBegFeedItem);
   const p = data.data?.pagination;
   return {
     begs,
@@ -369,7 +372,7 @@ export async function getMyBegs(
     throw new PlizApiError(data.message ?? `Request failed (${res.status})`, res.status);
   }
 
-  const begs = data.data?.begs ?? [];
+  const begs = (data.data?.begs ?? []).map(normalizeBegFeedItem);
   const p = data.data?.pagination;
   return {
     begs,
@@ -487,6 +490,20 @@ export function formatBegExpiresLabel(iso: string | undefined): string {
   return `${days} days left`;
 }
 
+function normalizeBegFeedItem(beg: BegFeedItem): BegFeedItem {
+  const ownerAvatarUrl =
+    beg.ownerAvatarUrl?.trim() ||
+    beg.owner_avatar_url?.trim() ||
+    undefined;
+  return ownerAvatarUrl ? { ...beg, ownerAvatarUrl } : beg;
+}
+
+function mapBegAvatar(beg: BegFeedItem): string | null {
+  if (beg.isAnonymous) return null;
+  const url = beg.ownerAvatarUrl?.trim() || beg.owner_avatar_url?.trim();
+  return url || null;
+}
+
 /** Map feed API item to browse card model. */
 export function feedBegToBrowseRequest(beg: BegFeedItem): BrowseRequest {
   const name = feedBegListingName(beg);
@@ -509,6 +526,7 @@ export function feedBegToBrowseRequest(beg: BegFeedItem): BrowseRequest {
     name,
     initial,
     avatarColor: avatarColorFromSeed(beg.userId || beg.id),
+    avatarUrl: mapBegAvatar(beg),
     timeLeft,
     categoryId: apiCategorySlugToUiCategoryId(beg.category.slug),
     categoryLabel: beg.category.name,
@@ -556,6 +574,7 @@ export function feedBegToTrendingRequest(beg: BegFeedItem): TrendingRequest {
     name,
     initial,
     avatarColor: avatarColorFromSeed(beg.userId || beg.id),
+    avatarUrl: mapBegAvatar(beg),
     timeAgo: formatBegCreatedTimeAgo(beg.createdAt),
     expiresInLabel: formatBegExpiresLabel(beg.expiresAt),
     text,
@@ -621,7 +640,7 @@ export async function getBegById(begId: string): Promise<BegFeedItem> {
     );
   }
 
-  return data.data.beg;
+  return normalizeBegFeedItem(data.data.beg);
 }
 
 /** Map API beg → request detail screen model (engagement counts are placeholders until API exists). */
@@ -662,9 +681,11 @@ export function begFeedItemToRequestDetail(beg: BegFeedItem): RequestDetail {
   return {
     id: beg.id,
     ownerUserId: beg.userId,
+    isAnonymous: Boolean(beg.isAnonymous),
     name,
     initial,
     avatarColor: avatarColorFromSeed(beg.userId || beg.id),
+    avatarUrl: mapBegAvatar(beg),
     timeLeft: timeRemaining,
     categoryId: apiCategorySlugToUiCategoryId(beg.category.slug),
     categoryLabel: beg.category.name,

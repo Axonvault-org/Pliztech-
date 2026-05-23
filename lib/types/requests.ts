@@ -3,6 +3,8 @@ import type { BrowseRequest } from '@/lib/types/home';
 export interface RequestDetail extends BrowseRequest {
   /** Beg owner — hide donation UI when same as current user */
   ownerUserId?: string;
+  /** When true, requester identity is hidden and profile is not viewable. */
+  isAnonymous?: boolean;
   /** From API; `false` until admin approves. */
   approved?: boolean;
   /** From API: false when expired, funded, cancelled, or not yet approved. */

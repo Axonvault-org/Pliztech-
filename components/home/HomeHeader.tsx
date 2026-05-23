@@ -1,4 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { Image } from 'expo-image';
 import { StyleSheet, View } from 'react-native';
 
 import { Text } from '@/components/Text';
@@ -17,6 +18,10 @@ export interface HomeHeaderProps {
   onNotificationPress?: () => void;
   /** When &gt; 0, shows a badge on the bell (e.g. unread API count). */
   unreadNotificationCount?: number;
+  avatarColor?: string;
+  avatarUrl?: string | null;
+  initials?: string;
+  maskAvatar?: boolean;
 }
 
 export function HomeHeader({
@@ -24,15 +29,29 @@ export function HomeHeader({
   role,
   onNotificationPress,
   unreadNotificationCount = 0,
+  avatarColor = COLORS.avatarBg,
+  avatarUrl,
+  initials,
+  maskAvatar = false,
 }: HomeHeaderProps) {
-  const initial = firstName.charAt(0).toUpperCase();
+  const avatarLabel =
+    maskAvatar ? '?' : initials?.trim() || firstName.charAt(0).toUpperCase() || '?';
   const isBeginnerBadge = role === 'Beginner';
 
   return (
     <View style={styles.row}>
       <View style={styles.left}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{initial}</Text>
+        <View
+          style={[
+            styles.avatar,
+            { backgroundColor: maskAvatar ? '#9CA3AF' : avatarColor },
+          ]}
+        >
+          {!maskAvatar && avatarUrl ? (
+            <Image source={{ uri: avatarUrl }} style={styles.avatarImage} contentFit="cover" />
+          ) : (
+            <Text style={styles.avatarText}>{avatarLabel}</Text>
+          )}
         </View>
         <Text style={styles.greeting}>
           Hi, <Text style={styles.name}>{firstName}</Text>
@@ -82,6 +101,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
+    overflow: 'hidden',
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
   },
   avatarText: {
     fontSize: 18,

@@ -74,6 +74,14 @@ function identityReviewInFlight(
   return verification.status === 'pending' || verification.status === 'under_review';
 }
 
+/** Masks a phone number for display, revealing only the last 3 digits. */
+function maskPhoneNumber(phone: string): string {
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length === 0) return phone;
+  if (digits.length <= 3) return '*'.repeat(digits.length);
+  return '*'.repeat(digits.length - 3) + digits.slice(-3);
+}
+
 export default function KycVerificationScreen() {
   const { refreshUser, signOut } = useCurrentUser();
   const { pickSelfie, modal: imagePickerModal, picking } = useKycImagePicker();
@@ -336,21 +344,22 @@ export default function KycVerificationScreen() {
       <View style={styles.content}>
         {loading && !status ? (
           <View style={styles.centered}>
-            <ActivityIndicator size="large" color="#EA580C" />
+            <ActivityIndicator size="large" color="#2E8BEA" />
           </View>
         ) : status && ui ? (
           <>
-            {!showDocumentForm ? (
+            {!showDocumentForm && !showPhoneSection ? (
               <View style={styles.heroCard}>
                 <Text style={styles.heroTitle}>{ui.title}</Text>
                 <Text style={styles.heroBody}>{ui.body}</Text>
-                <Pressable
-                  style={({ pressed }) => [styles.heroButton, pressed && styles.pressed]}
-                  onPress={() => void handleUiPrimary()}
-                >
-                  <Text style={styles.heroButtonText}>{ui.buttonLabel}</Text>
-                  <Ionicons name="chevron-forward" size={18} color="#FFFFFF" />
-                </Pressable>
+                <View style={styles.ctaWrap}>
+                  <CTAButton
+                    label={ui.buttonLabel}
+                    onPress={() => void handleUiPrimary()}
+                    variant="gradient"
+                    accessibilityLabel={ui.buttonLabel}
+                  />
+                </View>
               </View>
             ) : null}
 
@@ -359,52 +368,51 @@ export default function KycVerificationScreen() {
             ) : null}
 
             {showPhoneSection ? (
-              <View style={styles.actionCard}>
-                <Text style={styles.actionTitle}>Phone number</Text>
-                <Text style={styles.actionHint}>
-                  We send a one-time code to the number on your profile.
+              <View style={styles.phoneSection}>
+                <Text style={styles.pageTitle}>Verify your phone</Text>
+                <Text style={styles.pageSubtitle}>
+                  {status.phoneNumber
+                    ? `We will send a 6-digit code to ${maskPhoneNumber(status.phoneNumber)}.`
+                    : 'We send a one-time code to the phone number on your profile.'}
                 </Text>
-                <Pressable
-                  style={({ pressed }) => [styles.secondaryBtn, pressed && styles.pressed]}
-                  onPress={() => void onSendOtp()}
-                  disabled={otpBusy}
-                >
-                  {otpBusy ? (
-                    <ActivityIndicator color="#EA580C" />
-                  ) : (
-                    <Text style={styles.secondaryBtnText}>Send verification code</Text>
-                  )}
-                </Pressable>
+
+                <View style={styles.ctaStack}>
+                  <CTAButton
+                    label={otpBusy ? 'Sending…' : 'Send verification code'}
+                    onPress={() => void onSendOtp()}
+                    variant="gradient"
+                    disabled={otpBusy}
+                    accessibilityLabel="Send verification code"
+                  />
+                </View>
+
+                <Text style={styles.fieldLabel}>Verification code</Text>
                 <TextInput
-                  style={styles.input}
-                  placeholder="6-digit code"
+                  style={styles.fieldInput}
+                  placeholder="Enter 6-digit code"
                   placeholderTextColor="#9CA3AF"
                   keyboardType="number-pad"
                   maxLength={6}
                   value={otp}
                   onChangeText={(t) => setOtp(t.replace(/\D/g, ''))}
+                  editable={!otpBusy}
                 />
-                <View style={styles.otpActions}>
-                  <Pressable
-                    style={({ pressed }) => [styles.linkBtn, pressed && styles.pressed]}
+
+                <View style={styles.ctaStack}>
+                  <CTAButton
+                    label={otpBusy ? 'Verifying…' : 'Verify code'}
                     onPress={() => void onVerifyOtp()}
-                    disabled={otpBusy}
-                  >
-                    <Text style={styles.linkBtnText}>Verify code</Text>
-                  </Pressable>
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.linkBtn,
-                      resendSec > 0 && styles.linkDisabled,
-                      pressed && styles.pressed,
-                    ]}
+                    variant="gradient"
+                    disabled={otpBusy || otp.length !== 6}
+                    accessibilityLabel="Verify code"
+                  />
+                  <CTAButton
+                    label={resendSec > 0 ? `Resend code (${resendSec}s)` : 'Resend code'}
                     onPress={() => void onResendOtp()}
+                    variant="transparent"
                     disabled={otpBusy || resendSec > 0}
-                  >
-                    <Text style={styles.linkBtnText}>
-                      {resendSec > 0 ? `Resend (${resendSec}s)` : 'Resend code'}
-                    </Text>
-                  </Pressable>
+                    accessibilityLabel="Resend code"
+                  />
                 </View>
               </View>
             ) : null}
@@ -468,13 +476,15 @@ export default function KycVerificationScreen() {
                     ? 'Take a clear selfie in good lighting. It will be matched to the photo on your passport when you submit.'
                     : 'Take a clear selfie in good lighting so we can confirm you are the document holder.'}
                 </Text>
-                <CTAButton
-                  label={kycBusy ? 'Confirming selfie…' : 'Take selfie'}
-                  onPress={() => void onFaceLiveness()}
-                  variant="gradient"
-                  disabled={kycBusy || picking}
-                  accessibilityLabel="Take selfie"
-                />
+                <View style={styles.ctaWrap}>
+                  <CTAButton
+                    label={kycBusy ? 'Confirming selfie…' : 'Take selfie'}
+                    onPress={() => void onFaceLiveness()}
+                    variant="gradient"
+                    disabled={kycBusy || picking}
+                    accessibilityLabel="Take selfie"
+                  />
+                </View>
               </View>
             ) : null}
 
@@ -486,23 +496,27 @@ export default function KycVerificationScreen() {
                     ? 'We will verify your passport with the government registry and match your selfie to your passport photo.'
                     : 'We will verify your NIN with the government registry and confirm your name matches your profile.'}
                 </Text>
-                <CTAButton
-                  label={kycBusy ? 'Verifying…' : 'Submit verification'}
-                  onPress={() => void onSubmitKyc()}
-                  variant="gradient"
-                  disabled={kycBusy}
-                  accessibilityLabel="Submit verification"
-                />
+                <View style={styles.ctaWrap}>
+                  <CTAButton
+                    label={kycBusy ? 'Verifying…' : 'Submit verification'}
+                    onPress={() => void onSubmitKyc()}
+                    variant="gradient"
+                    disabled={kycBusy}
+                    accessibilityLabel="Submit verification"
+                  />
+                </View>
               </View>
             ) : null}
 
             {!steps[0]?.completed ? (
-              <Pressable
-                style={({ pressed }) => [styles.outlineBtn, pressed && styles.pressed]}
-                onPress={() => router.push('/(tabs)/personal-info')}
-              >
-                <Text style={styles.outlineBtnText}>Complete profile first</Text>
-              </Pressable>
+              <View style={styles.ctaWrap}>
+                <CTAButton
+                  label="Complete profile first"
+                  onPress={() => router.push('/(tabs)/personal-info')}
+                  variant="transparent"
+                  accessibilityLabel="Complete profile first"
+                />
+              </View>
             ) : null}
           </>
         ) : null}
@@ -546,19 +560,48 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginBottom: 16,
   },
-  heroButton: {
-    flexDirection: 'row',
+  ctaWrap: {
+    width: '100%',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    backgroundColor: '#EA580C',
-    paddingVertical: 14,
-    borderRadius: 12,
   },
-  heroButtonText: {
+  ctaStack: {
+    width: '100%',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 8,
+  },
+  phoneSection: {
+    marginBottom: 8,
+  },
+  pageTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#111827',
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  pageSubtitle: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#667085',
+    marginBottom: 20,
+  },
+  fieldLabel: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: '#111827',
+    marginBottom: 10,
+  },
+  fieldInput: {
+    minHeight: 54,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    fontSize: 16,
+    color: '#111827',
+    marginBottom: 16,
+    backgroundColor: '#FFFFFF',
   },
   pressed: {
     opacity: 0.88,
@@ -731,17 +774,6 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginBottom: 14,
   },
-  input: {
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: '#1F2937',
-    marginBottom: 12,
-    backgroundColor: '#F9FAFB',
-  },
   segmentRow: {
     flexDirection: 'row',
     gap: 8,
@@ -769,63 +801,5 @@ const styles = StyleSheet.create({
   },
   segmentTextSelected: {
     color: '#FFFFFF',
-  },
-  secondaryBtn: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#FDBA74',
-    backgroundColor: '#FFFBF0',
-    marginBottom: 12,
-  },
-  secondaryBtnText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#EA580C',
-  },
-  secondaryBtnTop: {
-    marginTop: 10,
-  },
-  otpActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  linkBtn: {
-    paddingVertical: 8,
-  },
-  linkDisabled: {
-    opacity: 0.5,
-  },
-  linkBtnText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#2563EB',
-  },
-  primaryBtn: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    borderRadius: 12,
-    backgroundColor: '#EA580C',
-  },
-  primaryBtnText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  outlineBtn: {
-    alignItems: 'center',
-    paddingVertical: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    backgroundColor: '#FFFFFF',
-  },
-  outlineBtnText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#374151',
   },
 });

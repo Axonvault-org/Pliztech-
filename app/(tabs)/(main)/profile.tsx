@@ -174,7 +174,7 @@ export default function ProfileScreen() {
           <ProfileRow
             icon="wallet-outline"
             title="Withdraw Funds"
-            subtitle="Cash out from funded requests"
+            subtitle="Cash out when funded or after a request ends"
             onPress={() => router.push('/(tabs)/withdraw-funds')}
             isLast
           />

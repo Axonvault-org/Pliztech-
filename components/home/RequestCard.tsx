@@ -4,6 +4,7 @@ import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Text } from '@/components/Text';
 
 import { ProgressBar } from '@/components/ProgressBar';
+import { RequesterAvatar } from '@/components/request/RequesterAvatar';
 
 import type { TrendingRequest } from '@/lib/types/home';
 
@@ -31,6 +32,7 @@ export function RequestCard({ request }: RequestCardProps) {
     name,
     initial,
     avatarColor,
+    avatarUrl,
     timeAgo,
     expiresInLabel,
     text,
@@ -53,9 +55,13 @@ export function RequestCard({ request }: RequestCardProps) {
           accessibilityLabel={`Request by ${name}: ${text.slice(0, 50)}...`}
         >
           <View style={styles.topRow}>
-            <View style={[styles.avatar, { backgroundColor: avatarColor }]}>
-              <Text style={[styles.avatarText, { color: '#FFFFFF' }]}>{initial}</Text>
-            </View>
+            <RequesterAvatar
+              size={40}
+              initial={initial}
+              avatarColor={avatarColor}
+              avatarUrl={avatarUrl}
+              maskAvatar={name.toLowerCase() === 'anonymous'}
+            />
             <Text style={styles.name} numberOfLines={1}>
               {name}
             </Text>
@@ -104,18 +110,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 10,
-  },
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  avatarText: {
-    fontSize: 16,
-    fontWeight: '700',
+    gap: 12,
   },
   name: {
     flex: 1,

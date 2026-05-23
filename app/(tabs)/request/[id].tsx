@@ -1,5 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -21,6 +21,8 @@ import { Text } from '@/components/Text';
 import { ProgressBar } from '@/components/ProgressBar';
 import { AmountChip } from '@/components/request/AmountChip';
 import { RequestDetailHeader } from '@/components/request/RequestDetailHeader';
+import { RequesterAvatar } from '@/components/request/RequesterAvatar';
+import { MemberProfileModal } from '@/components/profile/MemberProfileModal';
 import { Screen } from '@/components/Screen';
 import { REQUEST_CATEGORIES } from '@/constants/categories';
 import {
@@ -73,6 +75,7 @@ export default function RequestDetailScreen() {
   const [error, setError] = useState<string | null>(null);
   const [reactions, setReactions] = useState<ReactionsPayload | null>(null);
   const [reactionBusy, setReactionBusy] = useState<string | null>(null);
+  const [profileModalUserId, setProfileModalUserId] = useState<string | null>(null);
 
   const loadRequest = useCallback(async () => {
     if (!id) {
@@ -287,6 +290,7 @@ export default function RequestDetailScreen() {
     name,
     initial,
     avatarColor,
+    avatarUrl,
     categoryLabel,
     badge,
     fullDescription,
@@ -301,12 +305,24 @@ export default function RequestDetailScreen() {
     crowns,
     messages,
     ownerUserId,
+    isAnonymous,
     approved,
     canDonate: canDonateFromApi,
   } = request;
 
   const isOwner =
     Boolean(user?.id && ownerUserId && user.id === ownerUserId);
+  const canViewRequesterProfile =
+    Boolean(ownerUserId) && !isAnonymous && !isOwner;
+
+  const onViewRequesterProfile = () => {
+    if (!ownerUserId || isAnonymous) return;
+    if (isOwner) {
+      router.push('/(tabs)/(main)/profile' as Href);
+      return;
+    }
+    setProfileModalUserId(ownerUserId);
+  };
   const isAwaitingApproval = isOwner && approved === false;
   const visitorCanDonate =
     canDonateFromApi ??
@@ -350,6 +366,11 @@ export default function RequestDetailScreen() {
 
   return (
     <Screen backgroundColor="#FFFFFF">
+      <MemberProfileModal
+        visible={profileModalUserId != null}
+        userId={profileModalUserId}
+        onClose={() => setProfileModalUserId(null)}
+      />
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -363,29 +384,73 @@ export default function RequestDetailScreen() {
             }
           />
 
-          <View style={styles.requesterRow}>
-            <View style={[styles.avatar, { backgroundColor: avatarColor }]}>
-              <Text style={styles.avatarText}>{initial}</Text>
-            </View>
-            <View style={styles.requesterInfo}>
-              <View style={styles.nameRow}>
-                <Text style={styles.name} numberOfLines={1}>
-                  {name}
-                </Text>
-                {badge ? (
-                  <View style={styles.badge}>
-                    <Text style={styles.badgeText}>{badge}</Text>
-                  </View>
-                ) : null}
+          {canViewRequesterProfile || (isOwner && !isAnonymous) ? (
+            <Pressable
+              style={({ pressed }) => [
+                styles.requesterRow,
+                styles.requesterRowPressable,
+                pressed && styles.requesterRowPressed,
+              ]}
+              onPress={onViewRequesterProfile}
+              accessibilityRole="button"
+              accessibilityLabel={`View ${name}'s profile`}
+            >
+              <RequesterAvatar
+                size={48}
+                initial={initial}
+                avatarColor={avatarColor}
+                avatarUrl={avatarUrl}
+                maskAvatar={isAnonymous}
+              />
+              <View style={styles.requesterInfo}>
+                <View style={styles.nameRow}>
+                  <Text style={[styles.name, styles.nameLink]} numberOfLines={1}>
+                    {name}
+                  </Text>
+                  {badge ? (
+                    <View style={styles.badge}>
+                      <Text style={styles.badgeText}>{badge}</Text>
+                    </View>
+                  ) : null}
+                </View>
+                <View style={styles.metaRow}>
+                  <Ionicons name={categoryIcon} size={15} color="#6B7280" style={styles.metaIcon} />
+                  <Text style={styles.meta} numberOfLines={1}>
+                    {categoryLabel} · {timeAgo}
+                  </Text>
+                </View>
               </View>
-              <View style={styles.metaRow}>
-                <Ionicons name={categoryIcon} size={15} color="#6B7280" style={styles.metaIcon} />
-                <Text style={styles.meta} numberOfLines={1}>
-                  {categoryLabel} · {timeAgo}
-                </Text>
+              <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+            </Pressable>
+          ) : (
+            <View style={styles.requesterRow}>
+              <RequesterAvatar
+                size={48}
+                initial={initial}
+                avatarColor={avatarColor}
+                avatarUrl={avatarUrl}
+                maskAvatar={isAnonymous}
+              />
+              <View style={styles.requesterInfo}>
+                <View style={styles.nameRow}>
+                  <Text style={styles.name} numberOfLines={1}>
+                    {name}
+                  </Text>
+                  {badge ? (
+                    <View style={styles.badge}>
+                      <Text style={styles.badgeText}>{badge}</Text>
+                    </View>
+                  ) : null}
+                </View>
+                <View style={styles.metaRow}>
+                  <Ionicons name={categoryIcon} size={15} color="#6B7280" style={styles.metaIcon} />
+                  <Text style={styles.meta} numberOfLines={1}>
+                    {categoryLabel} · {timeAgo}
+                  </Text>
+                </View>
               </View>
             </View>
-          </View>
+          )}
 
           {isAwaitingApproval ? (
             <View style={styles.pendingApprovalBanner}>
@@ -674,19 +739,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 16,
+    gap: 12,
   },
-  avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
+  requesterRowPressable: {
+    borderRadius: 12,
+    paddingVertical: 4,
+    paddingHorizontal: 2,
+    marginHorizontal: -2,
   },
-  avatarText: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#FFFFFF',
+  requesterRowPressed: {
+    opacity: 0.85,
+    backgroundColor: '#F9FAFB',
   },
   requesterInfo: {
     flex: 1,
@@ -704,6 +767,9 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#1F2937',
     flexShrink: 1,
+  },
+  nameLink: {
+    color: '#2E8BEA',
   },
   badge: {
     backgroundColor: '#DBEAFE',

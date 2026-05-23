@@ -23,10 +23,11 @@ import { FormTextArea } from '@/components/FormTextArea';
 import { AppHeaderLogoRow } from '@/components/layout/AppHeaderLogoRow';
 import { Screen } from '@/components/Screen';
 import { categoryEmojiForId, REQUEST_CATEGORIES } from '@/constants/categories';
+import { useCurrentUser } from '@/contexts/CurrentUserContext';
 import {
-  canRequestHighAmountBeg,
-  useCurrentUser,
-} from '@/contexts/CurrentUserContext';
+  getBegAmountTierError,
+  parseAmountInput,
+} from '@/lib/beg/tier-progression';
 import {
   clampBegDescriptionForApi,
   createBeg,
@@ -116,14 +117,24 @@ export default function CreateScreen() {
     watch,
     setValue,
     reset,
-    formState: { errors },
+    formState: { errors, isValid },
   } = useForm<CreateRequestFormData>({
     resolver: zodResolver(createRequestSchema),
     defaultValues: createDefaults,
+    mode: 'onChange',
   });
 
   const description = watch('description');
+  const amountInput = watch('amount');
   const wordCount = countWords(description ?? '');
+
+  const parsedAmount = useMemo(() => parseAmountInput(amountInput ?? ''), [amountInput]);
+  const amountTierError = useMemo(() => {
+    if (parsedAmount == null || parsedAmount < 100) return null;
+    return getBegAmountTierError(parsedAmount, user);
+  }, [parsedAmount, user]);
+  const amountDisplayError = errors.amount?.message ?? amountTierError ?? undefined;
+  const continueDisabled = isSubmitting || !isValid || amountTierError != null;
 
   useEffect(() => {
     if (anonymousModeEnabled) {
@@ -139,15 +150,6 @@ export default function CreateScreen() {
       Alert.alert('Sign in required', 'Please log in to submit a request.', [
         { text: 'OK', onPress: () => router.push('/(auth)/login' as import('expo-router').Href) },
       ]);
-      return;
-    }
-
-    const amountNum = Number(data.amount.replace(/,/g, ''));
-    if (amountNum > 10_000 && !canRequestHighAmountBeg(user)) {
-      Alert.alert(
-        'Amount above ₦10,000',
-        'To request more than ₦10,000 you need to verify your identity with NIN or international passport and have at least two successful help requests or a donation on record.'
-      );
       return;
     }
 
@@ -282,7 +284,7 @@ export default function CreateScreen() {
 
           <RequestLimitAlert
             limit="₦10,000"
-            verifyMessage="Verify with NIN or international passport and complete two successful requests or a donation to request more."
+            verifyMessage="Verify your identity and make at least one donation to request more."
           />
 
           <Text style={styles.sectionTitle}>Select a Category</Text>
@@ -335,7 +337,7 @@ export default function CreateScreen() {
                 onChangeText={onChange}
                 onBlur={onBlur}
                 keyboardType="numeric"
-                error={errors.amount?.message}
+                error={amountDisplayError}
                 hint="Minimum ₦100. Subject to your trust tier limit."
               />
             )}
@@ -418,7 +420,7 @@ export default function CreateScreen() {
             onPress={handleSubmit(onContinue)}
             variant="gradient"
             accessibilityLabel="Continue"
-            disabled={isSubmitting}
+            disabled={continueDisabled}
           />
 
           <Text style={styles.disclaimer}>
