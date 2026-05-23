@@ -16,17 +16,17 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CTAButton } from '@/components/CTAButton';
 import { ProgressBar } from '@/components/ProgressBar';
 import { Text } from '@/components/Text';
-import { avatarColorFromSeed } from '@/contexts/CurrentUserContext';
+import { avatarColorFromSeed, useCurrentUser } from '@/contexts/CurrentUserContext';
 import {
     begFeedItemToRequestDetail,
     formatBegCreatedTimeAgo,
     getBegById,
 } from '@/lib/api/beg';
 import { getBegDonations, type BegDonationApiItem } from '@/lib/api/donations';
+import { getReactions, toggleReaction, type ReactionsPayload } from '@/lib/api/reactions';
 import { createStory } from '@/lib/api/stories';
 import { formatPlizApiErrorForUser, PlizApiError } from '@/lib/api/types';
 import { withUnauthorizedRecovery } from '@/lib/auth/session-expired';
-import { useCurrentUser } from '@/contexts/CurrentUserContext';
 import type { ActivityRequest, ActivityRequestStatus } from '@/lib/types/activity';
 import type { RequestDetail } from '@/lib/types/requests';
 
@@ -42,6 +42,7 @@ const SECTION_BLUE = '#1E40AF';
 const STORY_MAX_CHARS = 500;
 const STORY_MAX_WORDS = 60;
 const STORY_MIN_CHARS = 10;
+const REACTION_PILLS = ['👍', '❤️', '😂'];
 
 function countWords(text: string): number {
   return text
@@ -92,6 +93,8 @@ export function PastRequestOverlay({ visible, onClose, summary }: PastRequestOve
   const [error, setError] = useState<string | null>(null);
   const [detail, setDetail] = useState<RequestDetail | null>(null);
   const [donations, setDonations] = useState<BegDonationApiItem[]>([]);
+  const [reactions, setReactions] = useState<ReactionsPayload | null>(null);
+  const [reactionBusy, setReactionBusy] = useState<string | null>(null);
   const [testimony, setTestimony] = useState('');
   const [shareSubmitting, setShareSubmitting] = useState(false);
   /** API error from “Share story” (shown above the testimony field). */
@@ -108,9 +111,18 @@ export function PastRequestOverlay({ visible, onClose, summary }: PastRequestOve
       ]);
       setDetail(begFeedItemToRequestDetail(b));
       setDonations(d.donations);
+      try {
+        const reactionData = await withUnauthorizedRecovery(signOut, (token) =>
+          getReactions(token, 'beg', summary.id)
+        );
+        setReactions(reactionData);
+      } catch {
+        setReactions(null);
+      }
     } catch (e) {
       setDetail(null);
       setDonations([]);
+      setReactions(null);
       setError(
         e instanceof PlizApiError
           ? e.message
@@ -121,12 +133,13 @@ export function PastRequestOverlay({ visible, onClose, summary }: PastRequestOve
     } finally {
       setLoading(false);
     }
-  }, [summary?.id]);
+  }, [signOut, summary?.id]);
 
   useEffect(() => {
     if (!visible || !summary?.id) {
       setDetail(null);
       setDonations([]);
+      setReactions(null);
       setError(null);
       setTestimony('');
       setShareError(null);
@@ -147,7 +160,26 @@ export function PastRequestOverlay({ visible, onClose, summary }: PastRequestOve
   const thumbsUp = detail?.thumbsUp ?? 0;
   const hearts = detail?.hearts ?? 0;
   const gifts = detail?.gifts ?? 0;
-  const reactionTotal = thumbsUp + hearts + gifts;
+  const apiReactionCounts = new Map(
+    (reactions?.reactions ?? []).map((reaction) => [reaction.emoji, reaction.count])
+  );
+  const reactionTotal =
+    reactions?.totalReactions ?? thumbsUp + hearts + gifts;
+
+  const onToggleReaction = async (emoji: string) => {
+    if (!summary?.id || reactionBusy) return;
+    setReactionBusy(emoji);
+    try {
+      const data = await withUnauthorizedRecovery(signOut, (token) =>
+        toggleReaction(token, 'beg', summary.id, emoji)
+      );
+      setReactions(data);
+    } catch (e) {
+      Alert.alert('Could not react', formatPlizApiErrorForUser(e));
+    } finally {
+      setReactionBusy(null);
+    }
+  };
 
   const testimonyTrimmed = testimony.trim();
   const wordCount = countWords(testimonyTrimmed);
@@ -312,18 +344,27 @@ export function PastRequestOverlay({ visible, onClose, summary }: PastRequestOve
                 Reaction ({reactionTotal})
               </Text>
               <View style={styles.reactionRow}>
-                <View style={styles.reactionPill}>
-                  <Text style={styles.reactionEmoji}>👍</Text>
-                  <Text style={styles.reactionCount}>{thumbsUp}</Text>
-                </View>
-                <View style={styles.reactionPill}>
-                  <Text style={styles.reactionEmoji}>❤️</Text>
-                  <Text style={styles.reactionCount}>{hearts}</Text>
-                </View>
-                <View style={styles.reactionPill}>
-                  <Text style={styles.reactionEmoji}>😂</Text>
-                  <Text style={styles.reactionCount}>{gifts}</Text>
-                </View>
+                {REACTION_PILLS.map((emoji) => (
+                  <Pressable
+                    key={emoji}
+                    style={[
+                      styles.reactionPill,
+                      reactions?.userReaction === emoji && styles.reactionPillSelected,
+                      reactionBusy === emoji && styles.reactionPillBusy,
+                    ]}
+                    onPress={() => void onToggleReaction(emoji)}
+                    disabled={Boolean(reactionBusy)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`React with ${emoji}`}
+                    accessibilityState={{ selected: reactions?.userReaction === emoji }}
+                  >
+                    <Text style={styles.reactionEmoji}>{emoji}</Text>
+                    <Text style={styles.reactionCount}>
+                      {apiReactionCounts.get(emoji) ??
+                        (emoji === '👍' ? thumbsUp : emoji === '❤️' ? hearts : gifts)}
+                    </Text>
+                  </Pressable>
+                ))}
               </View>
 
               <View style={styles.testimonyHeader}>
@@ -611,6 +652,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 999,
+  },
+  reactionPillSelected: {
+    backgroundColor: '#E0F2FE',
+    borderWidth: 1,
+    borderColor: BLUE,
+  },
+  reactionPillBusy: {
+    opacity: 0.6,
   },
   reactionEmoji: {
     fontSize: 16,

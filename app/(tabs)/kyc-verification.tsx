@@ -18,6 +18,7 @@ import { CTAButton } from '@/components/CTAButton';
 import { KycRejectionBanner } from '@/components/kyc/KycRejectionBanner';
 import { Screen } from '@/components/Screen';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
+import { KYC_REQUIRE_FACE_LIVENESS } from '@/constants/kyc-config';
 import { useKycImagePicker } from '@/hooks/useKycImagePicker';
 import {
   getKycStatus,
@@ -156,7 +157,8 @@ export default function KycVerificationScreen() {
     !identityReviewInFlight(verification) &&
     (verification?.status !== 'rejected' || verification?.canRetry === true);
 
-  const requiresSelfie = verification?.verificationType === 'passport';
+  const requiresSelfie =
+    verification?.verificationType === 'passport' && KYC_REQUIRE_FACE_LIVENESS;
 
   const showFaceLiveness =
     requiresSelfie &&
@@ -287,15 +289,16 @@ export default function KycVerificationScreen() {
   };
 
   const onFaceLiveness = async () => {
-    const token = await getAccessToken();
-    if (!token || picking) return;
+    if (picking) return;
     const verificationType = verification?.verificationType;
     const file = await pickSelfie();
     if (!file) return;
     setKycBusy(true);
     try {
       const imageBase64 = await kycImageToBase64(file);
-      await verifyKycFaceLiveness(token, imageBase64);
+      await withUnauthorizedRecovery(signOut, (token) =>
+        verifyKycFaceLiveness(token, imageBase64)
+      );
       await loadStatus();
       Alert.alert(
         'Selfie confirmed',
@@ -376,6 +379,20 @@ export default function KycVerificationScreen() {
                     : 'We send a one-time code to the phone number on your profile.'}
                 </Text>
 
+                {verification?.phoneVerified ? (
+                  <View style={styles.phoneVerifiedCard}>
+                    <View style={styles.phoneVerifiedIcon}>
+                      <Ionicons name="checkmark" size={16} color="#16A34A" />
+                    </View>
+                    <View style={styles.phoneVerifiedCopy}>
+                      <Text style={styles.phoneVerifiedTitle}>Phone number verified</Text>
+                      <Text style={styles.phoneVerifiedText}>
+                        You can continue with NIN or international passport verification.
+                      </Text>
+                    </View>
+                  </View>
+                ) : null}
+
                 <View style={styles.ctaStack}>
                   <CTAButton
                     label={otpBusy ? 'Sending…' : 'Send verification code'}
@@ -419,6 +436,20 @@ export default function KycVerificationScreen() {
 
             {showDocumentForm ? (
               <>
+                {verification?.phoneVerified ? (
+                  <View style={styles.phoneVerifiedCard}>
+                    <View style={styles.phoneVerifiedIcon}>
+                      <Ionicons name="checkmark" size={16} color="#16A34A" />
+                    </View>
+                    <View style={styles.phoneVerifiedCopy}>
+                      <Text style={styles.phoneVerifiedTitle}>Phone number verified</Text>
+                      <Text style={styles.phoneVerifiedText}>
+                        Choose NIN or international passport to complete identity verification.
+                      </Text>
+                    </View>
+                  </View>
+                ) : null}
+
                 <View style={styles.methodHeader}>
                   <Text style={styles.methodTitle}>Choose a verification method</Text>
                   <Text style={styles.methodSubtitle}>
@@ -572,6 +603,39 @@ const styles = StyleSheet.create({
   },
   phoneSection: {
     marginBottom: 8,
+  },
+  phoneVerifiedCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    backgroundColor: '#F0FDF4',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    padding: 14,
+    marginBottom: 16,
+  },
+  phoneVerifiedIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#DCFCE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  phoneVerifiedCopy: {
+    flex: 1,
+  },
+  phoneVerifiedTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#166534',
+    marginBottom: 2,
+  },
+  phoneVerifiedText: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#15803D',
   },
   pageTitle: {
     fontSize: 22,

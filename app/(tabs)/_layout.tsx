@@ -38,6 +38,7 @@ export default function TabLayout() {
       <Stack.Screen name="notifications" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="request/[id]" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="withdraw-funds" options={{ headerShown: false, presentation: 'card' }} />
+      <Stack.Screen name="withdrawal-history" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="payment-cards" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="personal-info" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="edit-personal-info" options={{ headerShown: false, presentation: 'card' }} />

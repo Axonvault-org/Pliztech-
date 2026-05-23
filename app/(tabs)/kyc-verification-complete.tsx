@@ -1,22 +1,83 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
-import { useCallback } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { CTAButton } from '@/components/CTAButton';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
+import { getTrustProgress, type TrustProgress } from '@/lib/api/beg';
+import { getAccessTokenOrTryRefresh } from '@/lib/auth/session-expired';
 
-const UNLOCKED_BENEFITS = [
-  'Verified badge on profile',
-  'Higher request limits (up to ₦100,000)',
-  'Priority support from the Pliz team',
-  'Increased trust with donors',
-] as const;
+function formatNaira(amount: number): string {
+  return `₦${Math.round(amount).toLocaleString('en-NG')}`;
+}
+
+function formatCooldown(progress: TrustProgress): string {
+  const days = progress.capabilities.cooldownDays;
+  if (days >= 1) return `${days} day${days > 1 ? 's' : ''}`;
+  const hours = progress.capabilities.cooldownHours;
+  return `${hours} hour${hours > 1 ? 's' : ''}`;
+}
+
+function buildBenefits(progress: TrustProgress | null): string[] {
+  if (!progress) {
+    return [
+      'Verified badge on profile',
+      'Higher limits unlock as you donate and build trust',
+      'Increased trust with donors',
+    ];
+  }
+
+  const benefits = [
+    `${progress.currentTierBadge} ${progress.currentTierName} trust tier`,
+    `Current request limit: ${formatNaira(progress.capabilities.maxAmount)}`,
+    `${progress.capabilities.requestsPerDay} approved request${progress.capabilities.requestsPerDay > 1 ? 's' : ''} per day`,
+    `Cooldown after approval: ${formatCooldown(progress)}`,
+  ];
+
+  if (progress.nextCapabilities && progress.nextTierName) {
+    benefits.push(
+      `Next: ${progress.nextTierName} unlocks ${formatNaira(progress.nextCapabilities.maxAmount)} requests`
+    );
+  }
+
+  return benefits;
+}
+
+function buildSubtitle(progress: TrustProgress | null): string {
+  if (!progress) {
+    return 'Your identity has been confirmed. Your trust limits will update as you build donation history.';
+  }
+  if (!progress.breakdown.hasDonated) {
+    return 'Your identity has been confirmed. Make at least one donation to unlock requests above ₦10,000.';
+  }
+  return `Your identity has been confirmed. You can now request up to ${formatNaira(progress.capabilities.maxAmount)} based on your trust tier.`;
+}
 
 export default function KycVerificationCompleteScreen() {
   const { refreshUser } = useCurrentUser();
+  const [trustProgress, setTrustProgress] = useState<TrustProgress | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    void (async () => {
+      const token = await getAccessTokenOrTryRefresh();
+      if (!token) return;
+      try {
+        const progress = await getTrustProgress(token);
+        if (mounted) setTrustProgress(progress);
+      } catch {
+        if (mounted) setTrustProgress(null);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const benefits = useMemo(() => buildBenefits(trustProgress), [trustProgress]);
 
   const goToProfile = useCallback(() => {
     void refreshUser();
@@ -37,13 +98,12 @@ export default function KycVerificationCompleteScreen() {
 
         <Text style={styles.title}>You&apos;re Verified</Text>
         <Text style={styles.subtitle}>
-          Your identity has been confirmed. You can now have access to higher request limits and a
-          verified trust badge
+          {buildSubtitle(trustProgress)}
         </Text>
 
         <View style={styles.benefitsCard}>
-          <Text style={styles.benefitsTitle}>What you&apos;ve unlocked:</Text>
-          {UNLOCKED_BENEFITS.map((benefit) => (
+          <Text style={styles.benefitsTitle}>Your trust status:</Text>
+          {benefits.map((benefit) => (
             <View key={benefit} style={styles.benefitRow}>
               <View style={styles.benefitIcon}>
                 <Ionicons name="checkmark" size={14} color="#2E8BEA" />
@@ -51,6 +111,12 @@ export default function KycVerificationCompleteScreen() {
               <Text style={styles.benefitText}>{benefit}</Text>
             </View>
           ))}
+          {trustProgress?.nextTierRequirements.length ? (
+            <View style={styles.nextBox}>
+              <Text style={styles.nextTitle}>Next unlock</Text>
+              <Text style={styles.nextText}>{trustProgress.nextTierRequirements.join(' • ')}</Text>
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.actions}>
@@ -142,6 +208,23 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     color: '#374151',
     fontWeight: '500',
+  },
+  nextBox: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    padding: 14,
+    marginTop: 4,
+  },
+  nextTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  nextText: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: '#64748B',
   },
   actions: {
     width: '100%',

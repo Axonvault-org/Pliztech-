@@ -13,8 +13,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '@/components/Text';
 import { CTA_COLORS, CTA_GRADIENT } from '@/constants/cta-buttons';
 
+function roundMoney(amount: number): number {
+  return Math.round(amount * 100) / 100;
+}
+
 function formatNaira(amount: number) {
-  return `₦${Math.round(amount).toLocaleString()}`;
+  return `₦${amount.toLocaleString('en-NG', {
+    minimumFractionDigits: Number.isInteger(amount) ? 0 : 2,
+    maximumFractionDigits: 2,
+  })}`;
 }
 
 export type ConfirmRequestModalProps = {
@@ -48,9 +55,9 @@ export function ConfirmRequestModal({
   submitting = false,
 }: ConfirmRequestModalProps) {
   const insets = useSafeAreaInsets();
-  const fee = Math.round((amountRequested * platformFeePercent) / 100);
-  const vatOnFee = Math.round((fee * vatGovPercent) / 100);
-  const receive = Math.max(0, amountRequested - fee - vatOnFee);
+  const fee = roundMoney((amountRequested * platformFeePercent) / 100);
+  const vatOnFee = roundMoney((fee * vatGovPercent) / 100);
+  const receive = Math.max(0, roundMoney(amountRequested - fee - vatOnFee));
 
   return (
     <Modal
@@ -109,7 +116,7 @@ export function ConfirmRequestModal({
                 <Text style={styles.rowValueMuted}>-{formatNaira(fee)}</Text>
               </View>
               <View style={styles.row}>
-                <Text style={styles.rowLabel}>VAT (govt) ({vatGovPercent}% of fee)</Text>
+                <Text style={styles.rowLabel}>VAT ({vatGovPercent}% of platform fee)</Text>
                 <Text style={styles.rowValueMuted}>-{formatNaira(vatOnFee)}</Text>
               </View>
 

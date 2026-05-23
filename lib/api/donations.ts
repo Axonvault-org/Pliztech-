@@ -23,6 +23,8 @@ export type InitializeDonationBody = {
   /** Optional note to the recipient (if API supports it). */
   message?: string;
   savedCardId?: string;
+  /** Native app deep link — Paystack redirects here instead of the web app. */
+  callbackUrl?: string;
 };
 
 /** API only allows card, transfer, ussd — not `bank`. */
@@ -145,6 +147,9 @@ export async function initializeDonation(
           ? { message: body.message }
           : {}),
         ...(body.savedCardId ? { savedCardId: body.savedCardId } : {}),
+        ...(body.callbackUrl?.trim()
+          ? { callbackUrl: body.callbackUrl.trim() }
+          : {}),
       }),
     });
   } catch (err) {

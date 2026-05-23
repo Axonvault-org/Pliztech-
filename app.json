@@ -1,18 +1,19 @@
 {
   "expo": {
-    "name": "pliz-rn",
-    "slug": "pliz-rn",
+    "name": "Plz",
+    "slug": "plz",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/pliz-logo.png",
-    "scheme": "plizrn",
+    "scheme": "plz",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.pliz-rn"
+      "bundleIdentifier": "ng.plz.app"
     },
     "android": {
+      "package": "ng.plz.app",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/pliz-logo.png"
@@ -50,7 +51,7 @@
       [
         "@react-native-google-signin/google-signin",
         {
-          "iosUrlScheme": "com.googleusercontent.apps.REPLACE_WITH_IOS_CLIENT_FROM_GOOGLE_CLOUD"
+          "iosUrlScheme": "com.googleusercontent.apps.YOUR_IOS_CLIENT_ID"
         }
       ],
       "expo-apple-authentication"
@@ -58,6 +59,11 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "REPLACE_WITH_EAS_PROJECT_ID"
+      }
     }
   }
 }

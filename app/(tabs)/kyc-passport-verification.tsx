@@ -30,6 +30,7 @@ import {
   type PickedKycFile,
 } from '@/lib/kyc/helpers';
 import { submitAndWaitForKycResult, ensureKycReadyForResubmit } from '@/lib/kyc/submit-flow';
+import { KYC_REQUIRE_FACE_LIVENESS } from '@/constants/kyc-config';
 
 function getSubmitBlockReason({
   passportFormatValid,
@@ -126,19 +127,21 @@ export default function KycPassportVerificationScreen() {
         });
       });
 
-      setSubmitLabel('Take a selfie…');
-      const selfieFile = await pickSelfie();
-      if (!selfieFile) {
-        setSubmitting(false);
-        setSubmitLabel('Submit verification');
-        return;
-      }
+      if (KYC_REQUIRE_FACE_LIVENESS) {
+        setSubmitLabel('Take a selfie…');
+        const selfieFile = await pickSelfie();
+        if (!selfieFile) {
+          setSubmitting(false);
+          setSubmitLabel('Submit verification');
+          return;
+        }
 
-      setSubmitLabel('Confirming selfie…');
-      const imageBase64 = await kycImageToBase64(selfieFile);
-      await withUnauthorizedRecovery(signOut, (token) =>
-        verifyKycFaceLiveness(token, imageBase64)
-      );
+        setSubmitLabel('Confirming selfie…');
+        const imageBase64 = await kycImageToBase64(selfieFile);
+        await withUnauthorizedRecovery(signOut, (token) =>
+          verifyKycFaceLiveness(token, imageBase64)
+        );
+      }
 
       setSubmitLabel('Verifying with passport registry…');
       const outcome = await withUnauthorizedRecovery(signOut, (token) =>
@@ -170,8 +173,10 @@ export default function KycPassportVerificationScreen() {
       <View style={styles.content}>
         <Text style={styles.title}>International Passport</Text>
         <Text style={styles.subtitle}>
-          Enter your passport details and upload the biodata page. We will verify your passport and
-          match your selfie to your passport photo.
+          Enter your passport details and upload the biodata page.
+          {KYC_REQUIRE_FACE_LIVENESS
+            ? ' We will verify your passport and match your selfie to your passport photo.'
+            : ' We will verify your passport details with the registry.'}
         </Text>
 
         <ProfileNameNotice documentLabel="passport" />

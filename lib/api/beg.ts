@@ -47,6 +47,41 @@ export type CreatedBeg = {
   createdAt: string;
 };
 
+export type TrustProgress = {
+  currentScore: number;
+  currentTier: number;
+  currentTierName: string;
+  currentTierBadge: string;
+  nextTier: number | null;
+  nextTierName: string | null;
+  nextTierBadge: string | null;
+  pointsToNextTier: number | null;
+  progressPercentage: number;
+  capabilities: {
+    maxAmount: number;
+    requestsPerDay: number;
+    cooldownHours: number;
+    cooldownDays: number;
+  };
+  nextCapabilities: {
+    maxAmount: number;
+    requestsPerDay: number;
+    cooldownHours: number;
+    cooldownDays: number;
+  } | null;
+  breakdown: {
+    isVerified: boolean;
+    hasDonated: boolean;
+    totalDonated: number;
+    phoneVerified: boolean;
+    documentVerified: boolean;
+    abuseFlags: number;
+  };
+  nextTierRequirements: string[];
+  recommendations: string[];
+  isMaxTier: boolean;
+};
+
 /** Map Ask-for-help UI category ids to API category names (DB slug names). */
 const UI_CATEGORY_TO_API: Record<string, BegApiCategory> = {
   food: 'food',
@@ -123,6 +158,40 @@ export async function createBeg(
   }
 
   return { beg: data.data.beg, message: data.message ?? 'Beg created' };
+}
+
+/** GET /api/begs/trust/progress — current tier, limits, and next unlocks. */
+export async function getTrustProgress(accessToken: string): Promise<TrustProgress> {
+  const res = await fetch(apiUrl('/api/begs/trust/progress'), {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    throw new PlizApiError('Invalid response from server', res.status);
+  }
+
+  const data = json as {
+    success?: boolean;
+    message?: string;
+    data?: { progress?: TrustProgress };
+  };
+
+  if (!res.ok || data.success !== true) {
+    throw new PlizApiError(data.message ?? `Request failed (${res.status})`, res.status);
+  }
+
+  if (!data.data?.progress) {
+    throw new PlizApiError('Unexpected response shape', res.status);
+  }
+
+  return data.data.progress;
 }
 
 /** GET /api/begs/expiring — owner’s begs ending within ~1 hour (extend prompt). */
@@ -253,6 +322,11 @@ export type BegFeedItem = {
   expiresAt: string;
   createdAt: string;
   timeRemaining?: string;
+  viewerDonation?: {
+    totalAmount: number;
+    donationCount: number;
+    lastDonatedAt: string;
+  } | null;
 };
 
 export type GetBegsFeedResult = {
@@ -613,10 +687,18 @@ export async function getTrendingBegs(
 /**
  * GET /api/begs/:id — public beg detail (same shape as feed items).
  */
-export async function getBegById(begId: string): Promise<BegFeedItem> {
+export async function getBegById(
+  begId: string,
+  accessToken?: string | null
+): Promise<BegFeedItem> {
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (accessToken?.trim()) {
+    headers.Authorization = `Bearer ${accessToken.trim()}`;
+  }
+
   const res = await fetch(apiUrl(`/api/begs/${encodeURIComponent(begId)}`), {
     method: 'GET',
-    headers: { Accept: 'application/json' },
+    headers,
   });
 
   let json: unknown;
@@ -705,5 +787,6 @@ export function begFeedItemToRequestDetail(beg: BegFeedItem): RequestDetail {
     messages: 0,
     approved: beg.approved,
     canDonate,
+    viewerDonation: beg.viewerDonation ?? null,
   };
 }

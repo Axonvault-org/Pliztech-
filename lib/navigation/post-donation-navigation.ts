@@ -15,6 +15,24 @@ function stashBegIdForActivityOverlay(begId: string): void {
 }
 
 /**
+ * After Paystack checkout — always return to the request detail screen so donors
+ * see the request they supported (with viewer donation summary when logged in).
+ */
+export function navigateToRequestDetailAfterDonation(begId: string): void {
+  const id = begId.trim();
+  if (!id) {
+    router.replace('/(tabs)/(main)' as Href);
+    return;
+  }
+
+  router.replace('/(tabs)/(main)' as Href);
+  router.push({
+    pathname: '/(tabs)/request/[id]',
+    params: { id },
+  } as Href);
+}
+
+/**
  * Open a beg in the right place:
  * - **Activity** + past-request overlay when the beg is no longer active (funded, expired, cancelled…)
  * - **Request detail** when it is still active
