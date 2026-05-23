@@ -81,7 +81,7 @@ export function ConfirmWithdrawalSummary({
         valueStyle={styles.feeNegative}
       />
       <SummaryRow
-        label="VAT (7.5%)"
+        label="VAT (7.5% of fee)"
         value={formatNaira(-vatFee)}
         valueStyle={styles.feeNegative}
       />

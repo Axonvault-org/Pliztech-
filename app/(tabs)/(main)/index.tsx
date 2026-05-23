@@ -9,14 +9,17 @@ import { QuickActions } from '@/components/home/QuickActions';
 import { RecentContributions } from '@/components/home/RecentContributions';
 import { TrendingRequests } from '@/components/home/TrendingRequests';
 import {
+  avatarColorFromSeed,
   CURRENT_USER_FOCUS_REFETCH_STALE_MS,
   displayFirstName,
   displayMemberRoleLabel,
+  displayProfileHeader,
   useCurrentUser,
 } from '@/contexts/CurrentUserContext';
 
 import { getTrendingBegs } from '@/lib/api/beg';
 import { getMyDonations, myDonationToRecentContribution } from '@/lib/api/donations';
+import { getProfilePicture, type ProfilePicture } from '@/lib/api/profile-picture';
 import { PlizApiError } from '@/lib/api/types';
 import { getAccessToken } from '@/lib/auth/access-token';
 import {
@@ -38,6 +41,7 @@ export default function HomeScreen() {
   const [trendingError, setTrendingError] = useState<string | null>(null);
   const [recentContributions, setRecentContributions] = useState<RecentContribution[]>([]);
   const [recentLoading, setRecentLoading] = useState(false);
+  const [profilePicture, setProfilePicture] = useState<ProfilePicture | null>(null);
   const { unreadCount } = useUnreadNotificationCount();
 
   const loadTrending = useCallback(async (opts?: { background?: boolean }) => {
@@ -109,6 +113,27 @@ export default function HomeScreen() {
     [signOut]
   );
 
+  const loadProfilePicture = useCallback(
+    async (retryAfterRefresh = false) => {
+      try {
+        const token = await getAccessToken();
+        if (!token) {
+          setProfilePicture(null);
+          return;
+        }
+        setProfilePicture(await getProfilePicture(token));
+      } catch (e) {
+        if (isUnauthorizedSessionError(e) && !retryAfterRefresh) {
+          const recovered = await recoverFromUnauthorized(signOut);
+          if (recovered) {
+            await loadProfilePicture(true);
+          }
+        }
+      }
+    },
+    [signOut]
+  );
+
   useEffect(() => {
     void loadTrending();
   }, [loadTrending]);
@@ -125,13 +150,18 @@ export default function HomeScreen() {
       }
       lastHomeRefreshRef.current = now;
       void refreshUser();
+      void loadProfilePicture();
       void loadTrending({ background: true });
       void loadRecentContributions({ background: true });
-    }, [refreshUser, loadTrending, loadRecentContributions])
+    }, [refreshUser, loadProfilePicture, loadTrending, loadRecentContributions])
   );
 
   const firstName = isLoading && !user ? '…' : displayFirstName(user) || 'Guest';
   const role = user ? displayMemberRoleLabel(user) : isLoading ? '…' : 'Member';
+  const header = displayProfileHeader(user);
+  const seed = user?.username ?? user?.email ?? '';
+  const avatarColor = seed ? avatarColorFromSeed(seed) : '#2E8BEA';
+  const avatarUrl = profilePicture?.displayUrl ?? user?.avatar?.displayUrl ?? null;
 
   const impactStats = user?.stats;
   const totalGiven = Math.round(Number(impactStats?.totalDonated) || 0);
@@ -186,6 +216,10 @@ export default function HomeScreen() {
           role={role}
           onNotificationPress={onNotifications}
           unreadNotificationCount={unreadCount}
+          avatarColor={avatarColor}
+          avatarUrl={avatarUrl}
+          initials={header.initials}
+          maskAvatar={header.maskAvatar}
         />
         <ImpactCard
           totalGiven={totalGiven}

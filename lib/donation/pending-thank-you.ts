@@ -4,10 +4,12 @@ import { Platform } from 'react-native';
 const KEY = 'pliz_pending_donation_thank_you';
 
 export type PendingDonationThankYou = {
-  version: 2;
+  version: 2 | 3 | 4;
   amount: number;
   recipientName: string;
   begId: string;
+  donationId?: string;
+  paymentReference?: string;
   /** True when donor had “Show my name” on — controls privacy copy in the modal. */
   showRecipientName: boolean;
 };
@@ -46,7 +48,7 @@ function webRemoveItem(): void {
 export async function savePendingDonationThankYou(
   data: Omit<PendingDonationThankYou, 'version'>
 ): Promise<void> {
-  const payload: PendingDonationThankYou = { ...data, version: 2 };
+  const payload: PendingDonationThankYou = { ...data, version: 4 };
   const json = JSON.stringify(payload);
   if (Platform.OS === 'web') {
     webSetItem(json);
@@ -81,7 +83,9 @@ export async function consumePendingDonationThankYouIfBegMatches(
   try {
     const parsed = JSON.parse(raw) as Partial<PendingDonationThankYou>;
     const valid =
-      parsed?.version === 2 &&
+      (parsed?.version === 2 ||
+        parsed?.version === 3 ||
+        parsed?.version === 4) &&
       typeof parsed.amount === 'number' &&
       typeof parsed.recipientName === 'string' &&
       typeof parsed.begId === 'string' &&

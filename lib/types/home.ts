@@ -4,6 +4,7 @@ export type TrendingRequest = {
   name: string;
   initial: string;
   avatarColor: string;
+  avatarUrl?: string | null;
   timeAgo: string;
   /** Time until request expires (from API `expiresAt`). */
   expiresInLabel?: string;
@@ -31,6 +32,7 @@ export type BrowseRequest = {
   name: string;
   initial: string;
   avatarColor: string;
+  avatarUrl?: string | null;
   timeLeft: string;
   categoryId: string;
   categoryLabel: string;

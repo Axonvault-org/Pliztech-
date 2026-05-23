@@ -69,7 +69,7 @@ const styles = StyleSheet.create({
     padding: 20,
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    minWidth: 280,
+    width: '100%',
   },
   quoteIcon: {
     width: 48,

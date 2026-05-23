@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { router, type Href } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import {
   Alert,
@@ -23,14 +23,17 @@ import { FormTextArea } from '@/components/FormTextArea';
 import { AppHeaderLogoRow } from '@/components/layout/AppHeaderLogoRow';
 import { Screen } from '@/components/Screen';
 import { categoryEmojiForId, REQUEST_CATEGORIES } from '@/constants/categories';
+import { useCurrentUser } from '@/contexts/CurrentUserContext';
 import {
-  canRequestHighAmountBeg,
-  useCurrentUser,
-} from '@/contexts/CurrentUserContext';
+  getBegAmountTierError,
+  parseAmountInput,
+} from '@/lib/beg/tier-progression';
 import {
   clampBegDescriptionForApi,
   createBeg,
+  getTrustProgress,
   type BegExpiryHours,
+  type TrustProgress,
   uiCategoryToApiCategory,
 } from '@/lib/api/beg';
 import { formatPlizApiErrorForUser } from '@/lib/api/types';
@@ -38,6 +41,7 @@ import {
   getAccessTokenOrTryRefresh,
   withUnauthorizedRecovery,
 } from '@/lib/auth/session-expired';
+import { formatAmountInput } from '@/lib/money/input-format';
 
 const MAX_DESC_WORDS = 40;
 
@@ -87,6 +91,26 @@ const EXPIRY_OPTIONS = [
   { value: '168' as const, label: '7 days' },
 ];
 
+function formatNaira(amount: number): string {
+  return `₦${Math.round(amount).toLocaleString('en-NG')}`;
+}
+
+function buildTrustLimitMessage(progress: TrustProgress | null): string {
+  if (!progress) {
+    return 'Verify your identity and make at least one donation to request more.';
+  }
+  if (progress.isMaxTier) {
+    return `You are at the highest tier: ${progress.capabilities.requestsPerDay} approved requests per day.`;
+  }
+  if (progress.nextTierRequirements.length > 0) {
+    return `Next: ${progress.nextTierRequirements.join(' • ')}`;
+  }
+  if (progress.nextCapabilities) {
+    return `Next tier unlocks requests up to ${formatNaira(progress.nextCapabilities.maxAmount)}.`;
+  }
+  return 'Build trust by verifying your identity and helping others.';
+}
+
 function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
@@ -100,6 +124,8 @@ export default function CreateScreen() {
   );
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [trustProgress, setTrustProgress] = useState<TrustProgress | null>(null);
+  const [trustProgressLoading, setTrustProgressLoading] = useState(false);
   const [confirmVisible, setConfirmVisible] = useState(false);
   const [pendingSubmit, setPendingSubmit] = useState<CreateRequestFormData | null>(null);
   const [liveSuccess, setLiveSuccess] = useState<{
@@ -116,14 +142,42 @@ export default function CreateScreen() {
     watch,
     setValue,
     reset,
-    formState: { errors },
+    formState: { errors, isValid },
   } = useForm<CreateRequestFormData>({
     resolver: zodResolver(createRequestSchema),
     defaultValues: createDefaults,
+    mode: 'onChange',
   });
 
   const description = watch('description');
+  const amountInput = watch('amount');
   const wordCount = countWords(description ?? '');
+
+  const parsedAmount = useMemo(() => parseAmountInput(amountInput ?? ''), [amountInput]);
+  const amountTierError = useMemo(() => {
+    if (parsedAmount == null || parsedAmount < 100) return null;
+    return getBegAmountTierError(parsedAmount, user);
+  }, [parsedAmount, user]);
+  const amountDisplayError = errors.amount?.message ?? amountTierError ?? undefined;
+  const continueDisabled = isSubmitting || !isValid || amountTierError != null;
+
+  const loadTrustProgress = useCallback(async () => {
+    const token = await getAccessTokenOrTryRefresh();
+    if (!token) return;
+    setTrustProgressLoading(true);
+    try {
+      const progress = await getTrustProgress(token);
+      setTrustProgress(progress);
+    } catch {
+      setTrustProgress(null);
+    } finally {
+      setTrustProgressLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadTrustProgress();
+  }, [loadTrustProgress]);
 
   useEffect(() => {
     if (anonymousModeEnabled) {
@@ -139,15 +193,6 @@ export default function CreateScreen() {
       Alert.alert('Sign in required', 'Please log in to submit a request.', [
         { text: 'OK', onPress: () => router.push('/(auth)/login' as import('expo-router').Href) },
       ]);
-      return;
-    }
-
-    const amountNum = Number(data.amount.replace(/,/g, ''));
-    if (amountNum > 10_000 && !canRequestHighAmountBeg(user)) {
-      Alert.alert(
-        'Amount above ₦10,000',
-        'To request more than ₦10,000 you need to verify your identity with NIN or international passport and have at least two successful help requests or a donation on record.'
-      );
       return;
     }
 
@@ -281,8 +326,14 @@ export default function CreateScreen() {
           </Text>
 
           <RequestLimitAlert
-            limit="₦10,000"
-            verifyMessage="Verify with NIN or international passport and complete two successful requests or a donation to request more."
+            limit={formatNaira(trustProgress?.capabilities.maxAmount ?? 10000)}
+            tierLabel={
+              trustProgress
+                ? `${trustProgress.currentTierBadge} ${trustProgress.currentTierName}`
+                : undefined
+            }
+            verifyMessage={buildTrustLimitMessage(trustProgress)}
+            loading={trustProgressLoading}
           />
 
           <Text style={styles.sectionTitle}>Select a Category</Text>
@@ -332,10 +383,10 @@ export default function CreateScreen() {
                 label="How much do you need?"
                 placeholder="0"
                 value={value}
-                onChangeText={onChange}
+                onChangeText={(text) => onChange(formatAmountInput(text))}
                 onBlur={onBlur}
                 keyboardType="numeric"
-                error={errors.amount?.message}
+                error={amountDisplayError}
                 hint="Minimum ₦100. Subject to your trust tier limit."
               />
             )}
@@ -374,7 +425,7 @@ export default function CreateScreen() {
           <View style={styles.platformFeeBox}>
             <Ionicons name="information-circle-outline" size={20} color={COLORS.body} style={styles.platformFeeIcon} />
             <Text style={styles.platformFeeText}>
-              A 5% platform fee applies to successful requests.
+              A 5% platform fee applies to successful requests. VAT is 7.5% of that fee.
             </Text>
           </View>
 
@@ -418,7 +469,7 @@ export default function CreateScreen() {
             onPress={handleSubmit(onContinue)}
             variant="gradient"
             accessibilityLabel="Continue"
-            disabled={isSubmitting}
+            disabled={continueDisabled}
           />
 
           <Text style={styles.disclaimer}>

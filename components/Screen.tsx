@@ -64,7 +64,7 @@ export function Screen({
   };
 
   const contentContainerStyle: ViewStyle = {
-    flex: centerVertical ? 1 : undefined,
+    flex: scrollable ? undefined : 1,
     justifyContent: centerVertical ? 'center' : undefined,
     paddingVertical: SCREEN.paddingVertical,
     paddingBottom: SCREEN.contentPaddingBottom,

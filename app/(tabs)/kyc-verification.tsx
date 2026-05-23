@@ -1,5 +1,4 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import * as ImagePicker from 'expo-image-picker';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
@@ -15,15 +14,17 @@ import {
 import { Text } from '@/components/Text';
 
 import { AppHeaderTitleRow } from '@/components/layout/AppHeaderTitleRow';
+import { CTAButton } from '@/components/CTAButton';
+import { KycRejectionBanner } from '@/components/kyc/KycRejectionBanner';
 import { Screen } from '@/components/Screen';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
+import { KYC_REQUIRE_FACE_LIVENESS } from '@/constants/kyc-config';
+import { useKycImagePicker } from '@/hooks/useKycImagePicker';
 import {
   getKycStatus,
   resetKycAfterRejection,
   resendKycPhoneOtp,
   sendKycPhoneOtp,
-  submitKyc,
-  uploadKycDocument,
   verifyKycFaceLiveness,
   verifyKycPhoneOtp,
   type KycVerificationType,
@@ -31,12 +32,41 @@ import {
 } from '@/lib/api/kyc';
 import { PlizApiError } from '@/lib/api/types';
 import { getAccessToken } from '@/lib/auth/access-token';
+import { kycImageToBase64 } from '@/lib/kyc/helpers';
+import { submitAndWaitForKycResult } from '@/lib/kyc/submit-flow';
 import {
   isUnauthorizedSessionError,
   recoverFromUnauthorized,
+  withUnauthorizedRecovery,
 } from '@/lib/auth/session-expired';
 
 const RESEND_COOLDOWN_SEC = 60;
+
+const VERIFICATION_METHODS: {
+  type: KycVerificationType;
+  title: string;
+  body: string;
+  duration: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  iconBg: string;
+}[] = [
+  {
+    type: 'nin',
+    title: 'National ID (NIN)',
+    body: 'Verify with your 11-digit NIN — matched against the national registry',
+    duration: '~ 3 minutes',
+    icon: 'id-card-outline',
+    iconBg: '#A93BC4',
+  },
+  {
+    type: 'passport',
+    title: 'International Passport',
+    body: 'Verify with your passport — selfie matched to your passport photo',
+    duration: '~ 4 minutes',
+    icon: 'document-text-outline',
+    iconBg: '#2D6CDF',
+  },
+];
 
 function identityReviewInFlight(
   verification: KycStatusPayload['verification'] | undefined
@@ -45,23 +75,21 @@ function identityReviewInFlight(
   return verification.status === 'pending' || verification.status === 'under_review';
 }
 
+/** Masks a phone number for display, revealing only the last 3 digits. */
+function maskPhoneNumber(phone: string): string {
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length === 0) return phone;
+  if (digits.length <= 3) return '*'.repeat(digits.length);
+  return '*'.repeat(digits.length - 3) + digits.slice(-3);
+}
+
 export default function KycVerificationScreen() {
   const { refreshUser, signOut } = useCurrentUser();
+  const { pickSelfie, modal: imagePickerModal, picking } = useKycImagePicker();
 
   const [status, setStatus] = useState<KycStatusPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [otp, setOtp] = useState('');
-  const [verificationType, setVerificationType] = useState<KycVerificationType>('nin');
-  const [nin, setNin] = useState('');
-  const [ninDocumentType, setNinDocumentType] = useState<'slip' | 'card'>('slip');
-  const [ninStateOfOrigin, setNinStateOfOrigin] = useState('');
-  const [ninLGA, setNinLGA] = useState('');
-  const [ninEnrollmentDate, setNinEnrollmentDate] = useState('');
-  const [passportNumber, setPassportNumber] = useState('');
-  const [passportPlaceOfBirth, setPassportPlaceOfBirth] = useState('');
-  const [passportIssueDate, setPassportIssueDate] = useState('');
-  const [passportExpiry, setPassportExpiry] = useState('');
-  const [passportPlaceOfIssue, setPassportPlaceOfIssue] = useState('');
   const [otpBusy, setOtpBusy] = useState(false);
   const [kycBusy, setKycBusy] = useState(false);
   const [resendSec, setResendSec] = useState(0);
@@ -109,8 +137,15 @@ export default function KycVerificationScreen() {
     }, [loadStatus])
   );
 
-  const steps = status?.steps ?? [];
   const verification = status?.verification;
+
+  useEffect(() => {
+    if (verification?.isVerified || verification?.status === 'verified') {
+      router.replace('/(tabs)/kyc-verification-complete');
+    }
+  }, [verification?.isVerified, verification?.status]);
+
+  const steps = status?.steps ?? [];
   const ui = status?.ui;
 
   const showPhoneSection = steps[0]?.completed === true && steps[1]?.completed === false;
@@ -122,16 +157,20 @@ export default function KycVerificationScreen() {
     !identityReviewInFlight(verification) &&
     (verification?.status !== 'rejected' || verification?.canRetry === true);
 
+  const requiresSelfie =
+    verification?.verificationType === 'passport' && KYC_REQUIRE_FACE_LIVENESS;
+
   const showFaceLiveness =
+    requiresSelfie &&
     steps[2]?.completed === true &&
     steps[3]?.completed !== true &&
     !verification?.isVerified &&
     !identityReviewInFlight(verification);
 
   const showFinalSubmit =
-    steps[3]?.completed === true &&
     !verification?.isVerified &&
-    !identityReviewInFlight(verification);
+    !identityReviewInFlight(verification) &&
+    (requiresSelfie ? steps[3]?.completed === true : steps[2]?.completed === true);
 
   const handleUiPrimary = async () => {
     if (!ui) return;
@@ -149,7 +188,7 @@ export default function KycVerificationScreen() {
     }
 
     if (url === '/begs/create') {
-      router.push('/(tabs)/(main)/create');
+      router.replace('/(tabs)/kyc-verification-complete');
       return;
     }
 
@@ -249,113 +288,24 @@ export default function KycVerificationScreen() {
     }
   };
 
-  const pickImageFile = async (): Promise<{ uri: string; name: string; type: string } | null> => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert('Permission needed', 'Allow photo access so you can upload your document.');
-      return null;
-    }
-    const picked = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: false,
-      quality: 0.9,
-    });
-    if (picked.canceled || !picked.assets[0]) return null;
-    const asset = picked.assets[0];
-    const lower = asset.uri.toLowerCase();
-    const type =
-      asset.mimeType ??
-      (lower.endsWith('.png') ? 'image/png' : lower.endsWith('.webp') ? 'image/webp' : 'image/jpeg');
-    return {
-      uri: asset.uri,
-      name: asset.fileName ?? `kyc-${Date.now()}.jpg`,
-      type,
-    };
-  };
-
-  const onUploadDocument = async (documentType?: 'nin_front' | 'nin_back' | 'passport_biodata') => {
-    const token = await getAccessToken();
-    if (!token) return;
-
-    const file = await pickImageFile();
-    if (!file) return;
-
-    setKycBusy(true);
-    try {
-      if (verificationType === 'nin') {
-        const digits = nin.replace(/\D/g, '');
-        if (digits.length !== 11) {
-          Alert.alert('Invalid NIN', 'NIN must be exactly 11 digits.');
-          return;
-        }
-        if (!ninStateOfOrigin.trim() || !ninLGA.trim() || !ninEnrollmentDate.trim()) {
-          Alert.alert('Missing details', 'Enter state of origin, LGA, and enrollment date.');
-          return;
-        }
-        await uploadKycDocument(token, {
-          verificationType: 'nin',
-          documentType: documentType === 'nin_back' ? 'nin_back' : 'nin_front',
-          file,
-          nin: digits,
-          ninDocumentType,
-          ninStateOfOrigin,
-          ninLGA,
-          ninEnrollmentDate,
-        });
-      } else {
-        if (
-          !passportNumber.trim() ||
-          !passportPlaceOfBirth.trim() ||
-          !passportIssueDate.trim() ||
-          !passportExpiry.trim() ||
-          !passportPlaceOfIssue.trim()
-        ) {
-          Alert.alert('Missing details', 'Complete all passport fields before uploading.');
-          return;
-        }
-        await uploadKycDocument(token, {
-          verificationType: 'passport',
-          documentType: 'passport_biodata',
-          file,
-          passportNumber,
-          passportPlaceOfBirth,
-          passportIssueDate,
-          passportExpiry,
-          passportPlaceOfIssue,
-        });
-      }
-      await loadStatus();
-      await refreshUser();
-      Alert.alert('Document uploaded', 'Next, complete face liveness when prompted.');
-    } catch (e) {
-      const msg = e instanceof PlizApiError ? e.message : 'Upload failed.';
-      Alert.alert('Could not upload', msg);
-    } finally {
-      setKycBusy(false);
-    }
-  };
-
   const onFaceLiveness = async () => {
-    const token = await getAccessToken();
-    if (!token) return;
-    const file = await pickImageFile();
+    if (picking) return;
+    const verificationType = verification?.verificationType;
+    const file = await pickSelfie();
     if (!file) return;
     setKycBusy(true);
     try {
-      const response = await fetch(file.uri);
-      const blob = await response.blob();
-      const reader = new FileReader();
-      const imageBase64 = await new Promise<string>((resolve, reject) => {
-        reader.onerror = () => reject(new Error('Could not read selfie image.'));
-        reader.onloadend = () => {
-          const result = String(reader.result ?? '');
-          resolve(result.includes(',') ? result.split(',')[1] ?? '' : result);
-        };
-        reader.readAsDataURL(blob);
-      });
-      await verifyKycFaceLiveness(token, imageBase64);
+      const imageBase64 = await kycImageToBase64(file);
+      await withUnauthorizedRecovery(signOut, (token) =>
+        verifyKycFaceLiveness(token, imageBase64)
+      );
       await loadStatus();
-      Alert.alert('Selfie confirmed', 'You can now submit your verification for review.');
+      Alert.alert(
+        'Selfie confirmed',
+        verificationType === 'passport'
+          ? 'Your selfie will be compared to your passport photo when you submit.'
+          : 'You can now submit your verification for review.'
+      );
     } catch (e) {
       const msg = e instanceof PlizApiError ? e.message : 'Face liveness failed.';
       Alert.alert('Could not verify selfie', msg);
@@ -365,14 +315,18 @@ export default function KycVerificationScreen() {
   };
 
   const onSubmitKyc = async () => {
-    const token = await getAccessToken();
-    if (!token) return;
+    if (kycBusy) return;
     setKycBusy(true);
     try {
-      await submitKyc(token);
+      const outcome = await withUnauthorizedRecovery(signOut, (token) =>
+        submitAndWaitForKycResult(token)
+      );
       await loadStatus();
       await refreshUser();
-      Alert.alert('Submitted', 'We are verifying your details. You will be notified shortly.');
+      if (outcome.kind === 'verified') {
+        router.replace('/(tabs)/kyc-verification-complete');
+        return;
+      }
     } catch (e) {
       const msg = e instanceof PlizApiError ? e.message : 'Submission failed.';
       Alert.alert('Could not submit', msg);
@@ -382,277 +336,186 @@ export default function KycVerificationScreen() {
   };
 
   return (
-    <Screen backgroundColor="#F9FAFB" scrollable>
-      <AppHeaderTitleRow title="Account Verification" backIconColor="#9CA3AF" />
+    <>
+      <Screen backgroundColor="#F9FAFB" scrollable>
+      <AppHeaderTitleRow
+        title="Verify Identity"
+        backIconColor="#6B7280"
+        showNotification={false}
+      />
 
       <View style={styles.content}>
         {loading && !status ? (
           <View style={styles.centered}>
-            <ActivityIndicator size="large" color="#EA580C" />
+            <ActivityIndicator size="large" color="#2E8BEA" />
           </View>
         ) : status && ui ? (
           <>
-            <View style={styles.heroCard}>
-              <Text style={styles.heroTitle}>{ui.title}</Text>
-              <Text style={styles.heroBody}>{ui.body}</Text>
-              <Pressable
-                style={({ pressed }) => [styles.heroButton, pressed && styles.pressed]}
-                onPress={() => void handleUiPrimary()}
-              >
-                <Text style={styles.heroButtonText}>{ui.buttonLabel}</Text>
-                <Ionicons name="chevron-forward" size={18} color="#FFFFFF" />
-              </Pressable>
-            </View>
-
-            <Text style={styles.sectionLabel}>Progress</Text>
-            <View style={styles.stepsCard}>
-              {steps.map((s, i) => (
-                <View
-                  key={s.step}
-                  style={[styles.stepRow, i === steps.length - 1 && styles.stepRowLast]}
-                >
-                  <View style={styles.stepIcon}>
-                    <Ionicons
-                      name={s.completed ? 'checkmark-circle' : 'ellipse-outline'}
-                      size={22}
-                      color={s.completed ? '#22C55E' : '#D1D5DB'}
-                    />
-                  </View>
-                  <View style={styles.stepText}>
-                    <Text style={styles.stepLabel}>{s.label}</Text>
-                    <Text style={styles.stepDesc}>{s.description}</Text>
-                  </View>
+            {!showDocumentForm && !showPhoneSection ? (
+              <View style={styles.heroCard}>
+                <Text style={styles.heroTitle}>{ui.title}</Text>
+                <Text style={styles.heroBody}>{ui.body}</Text>
+                <View style={styles.ctaWrap}>
+                  <CTAButton
+                    label={ui.buttonLabel}
+                    onPress={() => void handleUiPrimary()}
+                    variant="gradient"
+                    accessibilityLabel={ui.buttonLabel}
+                  />
                 </View>
-              ))}
-            </View>
-
-            {verification?.status === 'rejected' && verification.rejectionReason ? (
-              <View style={styles.rejectBanner}>
-                <Ionicons name="alert-circle-outline" size={20} color="#B45309" />
-                <Text style={styles.rejectText}>{verification.rejectionReason}</Text>
               </View>
             ) : null}
 
+            {verification?.status === 'rejected' && verification.rejectionReason ? (
+              <KycRejectionBanner reason={verification.rejectionReason} />
+            ) : null}
+
             {showPhoneSection ? (
-              <View style={styles.actionCard}>
-                <Text style={styles.actionTitle}>Phone number</Text>
-                <Text style={styles.actionHint}>
-                  We send a one-time code to the number on your profile.
+              <View style={styles.phoneSection}>
+                <Text style={styles.pageTitle}>Verify your phone</Text>
+                <Text style={styles.pageSubtitle}>
+                  {status.phoneNumber
+                    ? `We will send a 6-digit code to ${maskPhoneNumber(status.phoneNumber)}.`
+                    : 'We send a one-time code to the phone number on your profile.'}
                 </Text>
-                <Pressable
-                  style={({ pressed }) => [styles.secondaryBtn, pressed && styles.pressed]}
-                  onPress={() => void onSendOtp()}
-                  disabled={otpBusy}
-                >
-                  {otpBusy ? (
-                    <ActivityIndicator color="#EA580C" />
-                  ) : (
-                    <Text style={styles.secondaryBtnText}>Send verification code</Text>
-                  )}
-                </Pressable>
+
+                {verification?.phoneVerified ? (
+                  <View style={styles.phoneVerifiedCard}>
+                    <View style={styles.phoneVerifiedIcon}>
+                      <Ionicons name="checkmark" size={16} color="#16A34A" />
+                    </View>
+                    <View style={styles.phoneVerifiedCopy}>
+                      <Text style={styles.phoneVerifiedTitle}>Phone number verified</Text>
+                      <Text style={styles.phoneVerifiedText}>
+                        You can continue with NIN or international passport verification.
+                      </Text>
+                    </View>
+                  </View>
+                ) : null}
+
+                <View style={styles.ctaStack}>
+                  <CTAButton
+                    label={otpBusy ? 'Sending…' : 'Send verification code'}
+                    onPress={() => void onSendOtp()}
+                    variant="gradient"
+                    disabled={otpBusy}
+                    accessibilityLabel="Send verification code"
+                  />
+                </View>
+
+                <Text style={styles.fieldLabel}>Verification code</Text>
                 <TextInput
-                  style={styles.input}
-                  placeholder="6-digit code"
+                  style={styles.fieldInput}
+                  placeholder="Enter 6-digit code"
                   placeholderTextColor="#9CA3AF"
                   keyboardType="number-pad"
                   maxLength={6}
                   value={otp}
                   onChangeText={(t) => setOtp(t.replace(/\D/g, ''))}
+                  editable={!otpBusy}
                 />
-                <View style={styles.otpActions}>
-                  <Pressable
-                    style={({ pressed }) => [styles.linkBtn, pressed && styles.pressed]}
+
+                <View style={styles.ctaStack}>
+                  <CTAButton
+                    label={otpBusy ? 'Verifying…' : 'Verify code'}
                     onPress={() => void onVerifyOtp()}
-                    disabled={otpBusy}
-                  >
-                    <Text style={styles.linkBtnText}>Verify code</Text>
-                  </Pressable>
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.linkBtn,
-                      resendSec > 0 && styles.linkDisabled,
-                      pressed && styles.pressed,
-                    ]}
+                    variant="gradient"
+                    disabled={otpBusy || otp.length !== 6}
+                    accessibilityLabel="Verify code"
+                  />
+                  <CTAButton
+                    label={resendSec > 0 ? `Resend code (${resendSec}s)` : 'Resend code'}
                     onPress={() => void onResendOtp()}
+                    variant="transparent"
                     disabled={otpBusy || resendSec > 0}
-                  >
-                    <Text style={styles.linkBtnText}>
-                      {resendSec > 0 ? `Resend (${resendSec}s)` : 'Resend code'}
-                    </Text>
-                  </Pressable>
+                    accessibilityLabel="Resend code"
+                  />
                 </View>
               </View>
             ) : null}
 
             {showDocumentForm ? (
-              <View style={styles.actionCard}>
-                <Text style={styles.actionTitle}>Means of verification</Text>
-                <Text style={styles.actionHint}>
-                  Choose NIN or international passport, then upload a clear image of the document.
-                </Text>
-                <View style={styles.segmentRow}>
-                  {(['nin', 'passport'] as const).map((type) => (
-                    <Pressable
-                      key={type}
-                      style={[
-                        styles.segment,
-                        verificationType === type && styles.segmentSelected,
-                      ]}
-                      onPress={() => setVerificationType(type)}
-                    >
-                      <Text
-                        style={[
-                          styles.segmentText,
-                          verificationType === type && styles.segmentTextSelected,
-                        ]}
-                      >
-                        {type === 'nin' ? 'NIN' : "Int'l passport"}
+              <>
+                {verification?.phoneVerified ? (
+                  <View style={styles.phoneVerifiedCard}>
+                    <View style={styles.phoneVerifiedIcon}>
+                      <Ionicons name="checkmark" size={16} color="#16A34A" />
+                    </View>
+                    <View style={styles.phoneVerifiedCopy}>
+                      <Text style={styles.phoneVerifiedTitle}>Phone number verified</Text>
+                      <Text style={styles.phoneVerifiedText}>
+                        Choose NIN or international passport to complete identity verification.
                       </Text>
-                    </Pressable>
-                  ))}
+                    </View>
+                  </View>
+                ) : null}
+
+                <View style={styles.methodHeader}>
+                  <Text style={styles.methodTitle}>Choose a verification method</Text>
+                  <Text style={styles.methodSubtitle}>
+                    Verified accounts unlock higher limits and earn trust badges
+                  </Text>
                 </View>
 
-                {verificationType === 'nin' ? (
-                  <>
-                    <View style={styles.segmentRow}>
-                      {(['slip', 'card'] as const).map((type) => (
-                        <Pressable
-                          key={type}
-                          style={[
-                            styles.segment,
-                            ninDocumentType === type && styles.segmentSelected,
-                          ]}
-                          onPress={() => setNinDocumentType(type)}
-                        >
-                          <Text
-                            style={[
-                              styles.segmentText,
-                              ninDocumentType === type && styles.segmentTextSelected,
-                            ]}
-                          >
-                            {type === 'slip' ? 'NIN slip' : 'NIN card'}
-                          </Text>
-                        </Pressable>
-                      ))}
-                    </View>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="11-digit NIN"
-                      placeholderTextColor="#9CA3AF"
-                      keyboardType="number-pad"
-                      maxLength={11}
-                      value={nin}
-                      onChangeText={(t) => setNin(t.replace(/\D/g, ''))}
-                    />
-                    <TextInput
-                      style={styles.input}
-                      placeholder="State of origin"
-                      placeholderTextColor="#9CA3AF"
-                      value={ninStateOfOrigin}
-                      onChangeText={setNinStateOfOrigin}
-                    />
-                    <TextInput
-                      style={styles.input}
-                      placeholder="LGA"
-                      placeholderTextColor="#9CA3AF"
-                      value={ninLGA}
-                      onChangeText={setNinLGA}
-                    />
-                    <TextInput
-                      style={styles.input}
-                      placeholder="Enrollment date (YYYY-MM-DD)"
-                      placeholderTextColor="#9CA3AF"
-                      value={ninEnrollmentDate}
-                      onChangeText={setNinEnrollmentDate}
-                    />
-                  </>
-                ) : (
-                  <>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="Passport number (A12345678)"
-                      placeholderTextColor="#9CA3AF"
-                      autoCapitalize="characters"
-                      value={passportNumber}
-                      onChangeText={setPassportNumber}
-                    />
-                    <TextInput
-                      style={styles.input}
-                      placeholder="Place of birth"
-                      placeholderTextColor="#9CA3AF"
-                      value={passportPlaceOfBirth}
-                      onChangeText={setPassportPlaceOfBirth}
-                    />
-                    <TextInput
-                      style={styles.input}
-                      placeholder="Issue date (YYYY-MM-DD)"
-                      placeholderTextColor="#9CA3AF"
-                      value={passportIssueDate}
-                      onChangeText={setPassportIssueDate}
-                    />
-                    <TextInput
-                      style={styles.input}
-                      placeholder="Expiry date (YYYY-MM-DD)"
-                      placeholderTextColor="#9CA3AF"
-                      value={passportExpiry}
-                      onChangeText={setPassportExpiry}
-                    />
-                    <TextInput
-                      style={styles.input}
-                      placeholder="Place of issue"
-                      placeholderTextColor="#9CA3AF"
-                      value={passportPlaceOfIssue}
-                      onChangeText={setPassportPlaceOfIssue}
-                    />
-                  </>
-                )}
+                <View style={styles.methodList}>
+                  {VERIFICATION_METHODS.map((method) => {
+                    return (
+                      <Pressable
+                        key={method.type}
+                        style={styles.methodCard}
+                        onPress={() =>
+                          router.push(
+                            method.type === 'nin'
+                              ? '/(tabs)/kyc-nin-verification'
+                              : '/(tabs)/kyc-passport-verification'
+                          )
+                        }
+                        accessibilityRole="button"
+                      >
+                        <View style={[styles.methodIconBox, { backgroundColor: method.iconBg }]}>
+                          <Ionicons name={method.icon} size={28} color="#FFFFFF" />
+                        </View>
+                        <View style={styles.methodCopy}>
+                          <Text style={styles.methodCardTitle}>{method.title}</Text>
+                          <Text style={styles.methodCardBody}>{method.body}</Text>
+                          <View style={styles.durationRow}>
+                            <Ionicons name="time-outline" size={11} color="#6B7280" />
+                            <Text style={styles.durationText}>{method.duration}</Text>
+                          </View>
+                        </View>
+                        <Ionicons name="chevron-forward" size={22} color="#6B7280" />
+                      </Pressable>
+                    );
+                  })}
+                </View>
 
-                <Pressable
-                  style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}
-                  onPress={() => void onUploadDocument(verificationType === 'passport' ? 'passport_biodata' : 'nin_front')}
-                  disabled={kycBusy}
-                >
-                  {kycBusy ? (
-                    <ActivityIndicator color="#FFFFFF" />
-                  ) : (
-                    <Text style={styles.primaryBtnText}>
-                      {verificationType === 'passport' ? 'Upload passport page' : 'Upload front document'}
-                    </Text>
-                  )}
-                </Pressable>
-                {verificationType === 'nin' && ninDocumentType === 'card' ? (
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.secondaryBtn,
-                      styles.secondaryBtnTop,
-                      pressed && styles.pressed,
-                    ]}
-                    onPress={() => void onUploadDocument('nin_back')}
-                    disabled={kycBusy}
-                  >
-                    <Text style={styles.secondaryBtnText}>Upload back of NIN card</Text>
-                  </Pressable>
-                ) : null}
-              </View>
+                <View style={styles.securityNotice}>
+                  <Ionicons name="information-circle-outline" size={16} color="#64748B" />
+                  <Text style={styles.securityNoticeText}>
+                    Your documents are encrypted and stored securely. We only use them to verify
+                    your identity and never share them with third parties.
+                  </Text>
+                </View>
+              </>
             ) : null}
 
             {showFaceLiveness ? (
               <View style={styles.actionCard}>
-                <Text style={styles.actionTitle}>Face liveness</Text>
+                <Text style={styles.actionTitle}>Take a selfie</Text>
                 <Text style={styles.actionHint}>
-                  Upload a clear selfie so we can confirm that the document belongs to you.
+                  {verification?.verificationType === 'passport'
+                    ? 'Take a clear selfie in good lighting. It will be matched to the photo on your passport when you submit.'
+                    : 'Take a clear selfie in good lighting so we can confirm you are the document holder.'}
                 </Text>
-                <Pressable
-                  style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}
-                  onPress={() => void onFaceLiveness()}
-                  disabled={kycBusy}
-                >
-                  {kycBusy ? (
-                    <ActivityIndicator color="#FFFFFF" />
-                  ) : (
-                    <Text style={styles.primaryBtnText}>Upload selfie</Text>
-                  )}
-                </Pressable>
+                <View style={styles.ctaWrap}>
+                  <CTAButton
+                    label={kycBusy ? 'Confirming selfie…' : 'Take selfie'}
+                    onPress={() => void onFaceLiveness()}
+                    variant="gradient"
+                    disabled={kycBusy || picking}
+                    accessibilityLabel="Take selfie"
+                  />
+                </View>
               </View>
             ) : null}
 
@@ -660,34 +523,38 @@ export default function KycVerificationScreen() {
               <View style={styles.actionCard}>
                 <Text style={styles.actionTitle}>Submit verification</Text>
                 <Text style={styles.actionHint}>
-                  Send your verified document and selfie for final identity checks.
+                  {verification?.verificationType === 'passport'
+                    ? 'We will verify your passport with the government registry and match your selfie to your passport photo.'
+                    : 'We will verify your NIN with the government registry and confirm your name matches your profile.'}
                 </Text>
-                <Pressable
-                  style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}
-                  onPress={() => void onSubmitKyc()}
-                  disabled={kycBusy}
-                >
-                  {kycBusy ? (
-                    <ActivityIndicator color="#FFFFFF" />
-                  ) : (
-                    <Text style={styles.primaryBtnText}>Submit verification</Text>
-                  )}
-                </Pressable>
+                <View style={styles.ctaWrap}>
+                  <CTAButton
+                    label={kycBusy ? 'Verifying…' : 'Submit verification'}
+                    onPress={() => void onSubmitKyc()}
+                    variant="gradient"
+                    disabled={kycBusy}
+                    accessibilityLabel="Submit verification"
+                  />
+                </View>
               </View>
             ) : null}
 
             {!steps[0]?.completed ? (
-              <Pressable
-                style={({ pressed }) => [styles.outlineBtn, pressed && styles.pressed]}
-                onPress={() => router.push('/(tabs)/personal-info')}
-              >
-                <Text style={styles.outlineBtnText}>Complete profile first</Text>
-              </Pressable>
+              <View style={styles.ctaWrap}>
+                <CTAButton
+                  label="Complete profile first"
+                  onPress={() => router.push('/(tabs)/personal-info')}
+                  variant="transparent"
+                  accessibilityLabel="Complete profile first"
+                />
+              </View>
             ) : null}
           </>
         ) : null}
       </View>
     </Screen>
+    {imagePickerModal}
+    </>
   );
 }
 
@@ -724,19 +591,81 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginBottom: 16,
   },
-  heroButton: {
+  ctaWrap: {
+    width: '100%',
+    alignItems: 'center',
+  },
+  ctaStack: {
+    width: '100%',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 8,
+  },
+  phoneSection: {
+    marginBottom: 8,
+  },
+  phoneVerifiedCard: {
     flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    backgroundColor: '#F0FDF4',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    padding: 14,
+    marginBottom: 16,
+  },
+  phoneVerifiedIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#DCFCE7',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    backgroundColor: '#EA580C',
-    paddingVertical: 14,
-    borderRadius: 12,
   },
-  heroButtonText: {
+  phoneVerifiedCopy: {
+    flex: 1,
+  },
+  phoneVerifiedTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#166534',
+    marginBottom: 2,
+  },
+  phoneVerifiedText: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#15803D',
+  },
+  pageTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#111827',
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  pageSubtitle: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#667085',
+    marginBottom: 20,
+  },
+  fieldLabel: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: '#111827',
+    marginBottom: 10,
+  },
+  fieldInput: {
+    minHeight: 54,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    fontSize: 16,
+    color: '#111827',
+    marginBottom: 16,
+    backgroundColor: '#FFFFFF',
   },
   pressed: {
     opacity: 0.88,
@@ -802,6 +731,93 @@ const styles = StyleSheet.create({
     color: '#92400E',
     lineHeight: 20,
   },
+  methodHeader: {
+    marginBottom: 22,
+  },
+  methodTitle: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 10,
+  },
+  methodSubtitle: {
+    fontSize: 17,
+    lineHeight: 24,
+    color: '#667085',
+  },
+  methodList: {
+    gap: 18,
+    marginBottom: 28,
+  },
+  methodCard: {
+    minHeight: 104,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+    borderWidth: 1,
+    borderColor: '#FFFFFF',
+  },
+  methodCardSelected: {
+    borderColor: '#2E8BEA',
+    shadowColor: '#2E8BEA',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 18,
+    elevation: 4,
+  },
+  methodIconBox: {
+    width: 46,
+    height: 46,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  methodCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  methodCardTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 5,
+  },
+  methodCardBody: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: '#667085',
+    marginBottom: 4,
+  },
+  durationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  durationText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#2E8BEA',
+  },
+  securityNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: '#F2F4F7',
+    borderRadius: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    marginBottom: 18,
+  },
+  securityNoticeText: {
+    flex: 1,
+    fontSize: 15,
+    lineHeight: 20,
+    color: '#667085',
+  },
   actionCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
@@ -821,17 +837,6 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     lineHeight: 20,
     marginBottom: 14,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: '#1F2937',
-    marginBottom: 12,
-    backgroundColor: '#F9FAFB',
   },
   segmentRow: {
     flexDirection: 'row',
@@ -860,63 +865,5 @@ const styles = StyleSheet.create({
   },
   segmentTextSelected: {
     color: '#FFFFFF',
-  },
-  secondaryBtn: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#FDBA74',
-    backgroundColor: '#FFFBF0',
-    marginBottom: 12,
-  },
-  secondaryBtnText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#EA580C',
-  },
-  secondaryBtnTop: {
-    marginTop: 10,
-  },
-  otpActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  linkBtn: {
-    paddingVertical: 8,
-  },
-  linkDisabled: {
-    opacity: 0.5,
-  },
-  linkBtnText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#2563EB',
-  },
-  primaryBtn: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    borderRadius: 12,
-    backgroundColor: '#EA580C',
-  },
-  primaryBtnText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  outlineBtn: {
-    alignItems: 'center',
-    paddingVertical: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    backgroundColor: '#FFFFFF',
-  },
-  outlineBtnText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#374151',
   },
 });

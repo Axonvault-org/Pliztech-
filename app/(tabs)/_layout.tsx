@@ -38,6 +38,7 @@ export default function TabLayout() {
       <Stack.Screen name="notifications" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="request/[id]" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="withdraw-funds" options={{ headerShown: false, presentation: 'card' }} />
+      <Stack.Screen name="withdrawal-history" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="payment-cards" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="personal-info" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="edit-personal-info" options={{ headerShown: false, presentation: 'card' }} />
@@ -52,6 +53,12 @@ export default function TabLayout() {
       <Stack.Screen name="stories-feed" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="share-story" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="kyc-verification" options={{ headerShown: false, presentation: 'card' }} />
+      <Stack.Screen name="kyc-nin-verification" options={{ headerShown: false, presentation: 'card' }} />
+      <Stack.Screen name="kyc-passport-verification" options={{ headerShown: false, presentation: 'card' }} />
+      <Stack.Screen
+        name="kyc-verification-complete"
+        options={{ headerShown: false, presentation: 'card' }}
+      />
       <Stack.Screen name="profile-picture" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="support" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="report-issue" options={{ headerShown: false, presentation: 'card' }} />

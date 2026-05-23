@@ -1,9 +1,10 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
+    Platform,
     Pressable,
     ScrollView,
     StyleSheet,
@@ -12,8 +13,6 @@ import {
     View,
 } from 'react-native';
 
-import { openPaystackCheckout } from '@/lib/utils/open-paystack-checkout';
-
 import { DonationThankYouModal } from '@/components/donation/DonationThankYouModal';
 import { CTAButton } from '@/components/CTAButton';
 import { Text } from '@/components/Text';
@@ -21,20 +20,28 @@ import { Text } from '@/components/Text';
 import { ProgressBar } from '@/components/ProgressBar';
 import { AmountChip } from '@/components/request/AmountChip';
 import { RequestDetailHeader } from '@/components/request/RequestDetailHeader';
+import { RequestDonorList } from '@/components/request/RequestDonorList';
+import { RequesterAvatar } from '@/components/request/RequesterAvatar';
+import { MemberProfileModal } from '@/components/profile/MemberProfileModal';
 import { Screen } from '@/components/Screen';
 import { REQUEST_CATEGORIES } from '@/constants/categories';
 import {
     begFeedItemToRequestDetail,
     getBegById,
 } from '@/lib/api/beg';
-import { initializeDonation } from '@/lib/api/donations';
+import { initializeDonation, getBegDonations, type BegDonationApiItem } from '@/lib/api/donations';
 import { getReactions, toggleReaction, type ReactionsPayload } from '@/lib/api/reactions';
 import { formatPlizApiErrorForUser } from '@/lib/api/types';
+import { getPaystackDonationCallbackUrl } from '@/lib/donation/paystack-callback-url';
+import { savePendingPaystackCheckout } from '@/lib/donation/pending-paystack-checkout';
 import { savePendingDonationThankYou } from '@/lib/donation/pending-thank-you';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
+import { openPaystackCheckout } from '@/lib/utils/open-paystack-checkout';
 import { withUnauthorizedRecovery } from '@/lib/auth/session-expired';
+import { getAccessToken } from '@/lib/auth/access-token';
+import { formatAmountInput } from '@/lib/money/input-format';
 import type { RequestDetail } from '@/lib/types/requests';
-import { getPlatformFee, getRequestReceives } from '@/lib/types/requests';
+import { getPlatformFee, getRequestReceives, getVatOnPlatformFee } from '@/lib/types/requests';
 
 const AMOUNT_OPTIONS = [
   { value: 1000, label: '₦1K' },
@@ -42,6 +49,9 @@ const AMOUNT_OPTIONS = [
   { value: 5000, label: '₦5K' },
   { value: 10000, label: '₦10K' },
 ];
+
+const MIN_DONATION_AMOUNT = 100;
+const MAX_DONATION_AMOUNT = 100000;
 
 /** Figma-style emoji reaction pills (counts from API when available). */
 const REACTION_PILLS: {
@@ -59,6 +69,27 @@ function formatNaira(amount: number) {
   return `₦${amount.toLocaleString()}`;
 }
 
+/** Largest preset ≤ amount needed, or exact remainder in custom when below smallest chip. */
+function defaultDonationSelection(amountNeeded: number): {
+  selected: number | null;
+  custom: string;
+} {
+  if (amountNeeded < MIN_DONATION_AMOUNT) {
+    return { selected: null, custom: '' };
+  }
+
+  const fittingPreset = [...AMOUNT_OPTIONS]
+    .map((o) => o.value)
+    .filter((v) => v <= amountNeeded)
+    .sort((a, b) => b - a)[0];
+
+  if (fittingPreset != null) {
+    return { selected: fittingPreset, custom: '' };
+  }
+
+  return { selected: null, custom: formatAmountInput(String(amountNeeded)) };
+}
+
 /** Wide readable column on tablet / web; full width on phones. */
 const REQUEST_DETAIL_MAX_WIDTH = 960;
 
@@ -73,6 +104,10 @@ export default function RequestDetailScreen() {
   const [error, setError] = useState<string | null>(null);
   const [reactions, setReactions] = useState<ReactionsPayload | null>(null);
   const [reactionBusy, setReactionBusy] = useState<string | null>(null);
+  const [profileModalUserId, setProfileModalUserId] = useState<string | null>(null);
+  const [begDonations, setBegDonations] = useState<BegDonationApiItem[]>([]);
+  const [donorTotal, setDonorTotal] = useState(0);
+  const [donorsLoading, setDonorsLoading] = useState(false);
 
   const loadRequest = useCallback(async () => {
     if (!id) {
@@ -84,7 +119,8 @@ export default function RequestDetailScreen() {
     setLoading(true);
     setError(null);
     try {
-      const beg = await getBegById(id);
+      const token = await getAccessToken();
+      const beg = await getBegById(id, token);
       setRequest(begFeedItemToRequestDetail(beg));
     } catch (e) {
       setRequest(null);
@@ -114,19 +150,41 @@ export default function RequestDetailScreen() {
     void loadReactions();
   }, [loadReactions]);
 
-  /** Default so Continue can POST without forcing a chip tap (was easy to miss → no fetch). */
-  const [selectedAmount, setSelectedAmount] = useState<number | null>(
-    AMOUNT_OPTIONS[0]?.value ?? null
-  );
+  const loadDonors = useCallback(async () => {
+    if (!id) return;
+    setDonorsLoading(true);
+    try {
+      const result = await getBegDonations(id, { page: 1, limit: 50 });
+      setBegDonations(result.donations);
+      setDonorTotal(result.pagination.total);
+    } catch {
+      setBegDonations([]);
+      setDonorTotal(0);
+    } finally {
+      setDonorsLoading(false);
+    }
+  }, [id]);
+
+  useEffect(() => {
+    if (!request?.ownerUserId || !user?.id || user.id !== request.ownerUserId) {
+      setBegDonations([]);
+      setDonorTotal(0);
+      return;
+    }
+    void loadDonors();
+  }, [request?.ownerUserId, user?.id, loadDonors]);
+
+  /** Set when request loads or user changes amount — avoids errors on first paint. */
+  const [selectedAmount, setSelectedAmount] = useState<number | null>(null);
   const [customAmount, setCustomAmount] = useState('');
+  const [amountTouched, setAmountTouched] = useState(false);
   const [showName, setShowName] = useState(true);
-  /** Default `card` so Continue can call the API without an extra tap. Bank maps to `transfer` on the server. */
-  const [paymentMethod, setPaymentMethod] = useState<'card' | 'bank'>('card');
   const [donationSubmitting, setDonationSubmitting] = useState(false);
   const [donationThankYou, setDonationThankYou] = useState<{
     amount: number;
     recipientName: string;
     showRecipientName: boolean;
+    donationId?: string;
   } | null>(null);
   const customAmountRef = useRef<TextInput>(null);
 
@@ -138,31 +196,64 @@ export default function RequestDetailScreen() {
 
   const amountNeeded = request ? Math.max(0, request.goal - request.raised) : 0;
 
+  useEffect(() => {
+    if (!request) return;
+    const { selected, custom } = defaultDonationSelection(amountNeeded);
+    setSelectedAmount(selected);
+    setCustomAmount(custom);
+    setAmountTouched(false);
+  }, [request?.id, amountNeeded]);
+
+  const parsedCustomAmount = useMemo(() => {
+    const parsed = parseInt(String(customAmount).replace(/\D/g, ''), 10);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }, [customAmount]);
+  const selectedDonationAmount = selectedAmount ?? parsedCustomAmount;
+  const donationAmountError = useMemo(() => {
+    if (selectedDonationAmount <= 0) return null;
+    if (selectedDonationAmount < MIN_DONATION_AMOUNT) {
+      return `Minimum donation is ${formatNaira(MIN_DONATION_AMOUNT)}.`;
+    }
+    if (selectedDonationAmount > MAX_DONATION_AMOUNT) {
+      return `Maximum donation is ${formatNaira(MAX_DONATION_AMOUNT)}.`;
+    }
+    if (amountNeeded > 0 && selectedDonationAmount > amountNeeded) {
+      return `This request only needs ${formatNaira(amountNeeded)} more.`;
+    }
+    return null;
+  }, [amountNeeded, selectedDonationAmount]);
+
+  const visibleDonationError = amountTouched ? donationAmountError : null;
+
   const onContinueDonation = useCallback(async () => {
     if (donationSubmitting) return;
+    setAmountTouched(true);
     if (!id?.trim()) {
       Alert.alert('Request', 'Missing request id. Go back and open the request again.');
       return;
     }
 
-    const parsedCustom = parseInt(String(customAmount).replace(/\D/g, ''), 10);
-    const rawAmount =
-      selectedAmount ?? (Number.isFinite(parsedCustom) ? parsedCustom : 0);
+    const rawAmount = selectedDonationAmount;
 
     if (!Number.isFinite(rawAmount) || rawAmount < 100) {
       Alert.alert('Amount', 'Select a preset amount or enter at least ₦100.');
+      return;
+    }
+    if (donationAmountError) {
       return;
     }
 
     setDonationSubmitting(true);
     const effectiveShowName = anonymousModeEnabled ? false : showName;
     try {
+      const callbackUrl = getPaystackDonationCallbackUrl();
       const result = await withUnauthorizedRecovery(signOut, (token) =>
         initializeDonation(token, {
           begId: id,
           amount: rawAmount,
-          paymentMethod: paymentMethod === 'bank' ? 'bank' : 'card',
+          paymentMethod: 'card',
           isAnonymous: !effectiveShowName,
+          callbackUrl,
         })
       );
 
@@ -173,21 +264,44 @@ export default function RequestDetailScreen() {
               amount: rawAmount,
               recipientName: request.name,
               begId: id,
+              donationId: result.donationId,
+              paymentReference: result.paymentReference,
               showRecipientName: effectiveShowName,
             });
           } catch {
             /* still open Paystack — storage must not block checkout */
           }
         }
-        await openPaystackCheckout(result.paymentUrl);
-        // Web: full-page redirect to Paystack — this line won't run after assign.
-        void loadRequest();
+
+        if (Platform.OS === 'web') {
+          await openPaystackCheckout(result.paymentUrl, {
+            redirectUrl: callbackUrl,
+            paymentReference: result.paymentReference,
+          });
+          return;
+        }
+
+        await savePendingPaystackCheckout({
+          reference: result.paymentReference,
+          paymentUrl: result.paymentUrl,
+          redirectUrl: callbackUrl,
+        });
+
+        router.replace({
+          pathname: '/payment/callback',
+          params: {
+            reference: result.paymentReference,
+            checkout: '1',
+          },
+        });
+        return;
       } else {
         if (request) {
           setDonationThankYou({
             amount: rawAmount,
             recipientName: request.name,
             showRecipientName: effectiveShowName,
+            donationId: result.donationId,
           });
         } else {
           Alert.alert(
@@ -206,9 +320,8 @@ export default function RequestDetailScreen() {
   }, [
     id,
     donationSubmitting,
-    paymentMethod,
-    selectedAmount,
-    customAmount,
+    selectedDonationAmount,
+    donationAmountError,
     showName,
     anonymousModeEnabled,
     request,
@@ -287,6 +400,7 @@ export default function RequestDetailScreen() {
     name,
     initial,
     avatarColor,
+    avatarUrl,
     categoryLabel,
     badge,
     fullDescription,
@@ -301,12 +415,25 @@ export default function RequestDetailScreen() {
     crowns,
     messages,
     ownerUserId,
+    isAnonymous,
     approved,
     canDonate: canDonateFromApi,
+    viewerDonation,
   } = request;
 
   const isOwner =
     Boolean(user?.id && ownerUserId && user.id === ownerUserId);
+  const canViewRequesterProfile =
+    Boolean(ownerUserId) && !isAnonymous && !isOwner;
+
+  const onViewRequesterProfile = () => {
+    if (!ownerUserId || isAnonymous) return;
+    if (isOwner) {
+      router.push('/(tabs)/(main)/profile' as Href);
+      return;
+    }
+    setProfileModalUserId(ownerUserId);
+  };
   const isAwaitingApproval = isOwner && approved === false;
   const visitorCanDonate =
     canDonateFromApi ??
@@ -315,6 +442,7 @@ export default function RequestDetailScreen() {
       timeRemaining !== 'Pending approval');
 
   const platformFee = getPlatformFee(goal);
+  const vatOnPlatformFee = getVatOnPlatformFee(goal);
   const requesterReceives = getRequestReceives(goal);
 
   const reactionCounts: Record<string, number> = {
@@ -350,6 +478,11 @@ export default function RequestDetailScreen() {
 
   return (
     <Screen backgroundColor="#FFFFFF">
+      <MemberProfileModal
+        visible={profileModalUserId != null}
+        userId={profileModalUserId}
+        onClose={() => setProfileModalUserId(null)}
+      />
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -363,29 +496,73 @@ export default function RequestDetailScreen() {
             }
           />
 
-          <View style={styles.requesterRow}>
-            <View style={[styles.avatar, { backgroundColor: avatarColor }]}>
-              <Text style={styles.avatarText}>{initial}</Text>
-            </View>
-            <View style={styles.requesterInfo}>
-              <View style={styles.nameRow}>
-                <Text style={styles.name} numberOfLines={1}>
-                  {name}
-                </Text>
-                {badge ? (
-                  <View style={styles.badge}>
-                    <Text style={styles.badgeText}>{badge}</Text>
-                  </View>
-                ) : null}
+          {canViewRequesterProfile || (isOwner && !isAnonymous) ? (
+            <Pressable
+              style={({ pressed }) => [
+                styles.requesterRow,
+                styles.requesterRowPressable,
+                pressed && styles.requesterRowPressed,
+              ]}
+              onPress={onViewRequesterProfile}
+              accessibilityRole="button"
+              accessibilityLabel={`View ${name}'s profile`}
+            >
+              <RequesterAvatar
+                size={48}
+                initial={initial}
+                avatarColor={avatarColor}
+                avatarUrl={avatarUrl}
+                maskAvatar={isAnonymous}
+              />
+              <View style={styles.requesterInfo}>
+                <View style={styles.nameRow}>
+                  <Text style={[styles.name, styles.nameLink]} numberOfLines={1}>
+                    {name}
+                  </Text>
+                  {badge ? (
+                    <View style={styles.badge}>
+                      <Text style={styles.badgeText}>{badge}</Text>
+                    </View>
+                  ) : null}
+                </View>
+                <View style={styles.metaRow}>
+                  <Ionicons name={categoryIcon} size={15} color="#6B7280" style={styles.metaIcon} />
+                  <Text style={styles.meta} numberOfLines={1}>
+                    {categoryLabel} · {timeAgo}
+                  </Text>
+                </View>
               </View>
-              <View style={styles.metaRow}>
-                <Ionicons name={categoryIcon} size={15} color="#6B7280" style={styles.metaIcon} />
-                <Text style={styles.meta} numberOfLines={1}>
-                  {categoryLabel} · {timeAgo}
-                </Text>
+              <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+            </Pressable>
+          ) : (
+            <View style={styles.requesterRow}>
+              <RequesterAvatar
+                size={48}
+                initial={initial}
+                avatarColor={avatarColor}
+                avatarUrl={avatarUrl}
+                maskAvatar={isAnonymous}
+              />
+              <View style={styles.requesterInfo}>
+                <View style={styles.nameRow}>
+                  <Text style={styles.name} numberOfLines={1}>
+                    {name}
+                  </Text>
+                  {badge ? (
+                    <View style={styles.badge}>
+                      <Text style={styles.badgeText}>{badge}</Text>
+                    </View>
+                  ) : null}
+                </View>
+                <View style={styles.metaRow}>
+                  <Ionicons name={categoryIcon} size={15} color="#6B7280" style={styles.metaIcon} />
+                  <Text style={styles.meta} numberOfLines={1}>
+                    {categoryLabel} · {timeAgo}
+                  </Text>
+                </View>
               </View>
             </View>
-          </View>
+          )}
 
           {isAwaitingApproval ? (
             <View style={styles.pendingApprovalBanner}>
@@ -460,26 +637,42 @@ export default function RequestDetailScreen() {
               <ProgressBar percent={percent} height={8} trackColor="#EEEEEE" fillColor="#2E8BEA" />
             </View>
 
-            <View style={styles.cardDivider} />
+            {isOwner ? (
+              <>
+                <View style={styles.cardDivider} />
 
-            <View style={styles.breakdownBlock}>
-              <View style={styles.breakdownLine}>
-                <Text style={styles.breakdownLabel}>Amount requested</Text>
-                <Text style={styles.breakdownValue}>{formatNaira(goal)}</Text>
-              </View>
-              <View style={styles.breakdownLine}>
-                <View style={styles.breakdownLabelRow}>
-                  <Text style={styles.breakdownLabel}>Platform fee (5%)</Text>
-                  <Ionicons name="information-circle-outline" size={16} color="#9CA3AF" />
+                <View style={styles.breakdownBlock}>
+                  <View style={styles.breakdownLine}>
+                    <Text style={styles.breakdownLabel}>Amount requested</Text>
+                    <Text style={styles.breakdownValue}>{formatNaira(goal)}</Text>
+                  </View>
+                  <View style={styles.breakdownLine}>
+                    <View style={styles.breakdownLabelRow}>
+                      <Text style={styles.breakdownLabel}>Platform fee (5%)</Text>
+                      <Ionicons name="information-circle-outline" size={16} color="#9CA3AF" />
+                    </View>
+                    <Text style={styles.breakdownValueMuted}>-{formatNaira(platformFee)}</Text>
+                  </View>
+                  <View style={styles.breakdownLine}>
+                    <Text style={styles.breakdownLabel}>VAT (7.5% of fee)</Text>
+                    <Text style={styles.breakdownValueMuted}>-{formatNaira(vatOnPlatformFee)}</Text>
+                  </View>
+                  <View style={[styles.breakdownLine, styles.breakdownLineLast]}>
+                    <Text style={styles.breakdownReceivesLabel}>Requester receives</Text>
+                    <Text style={styles.breakdownReceivesValue}>{formatNaira(requesterReceives)}</Text>
+                  </View>
                 </View>
-                <Text style={styles.breakdownValueMuted}>-{formatNaira(platformFee)}</Text>
-              </View>
-              <View style={[styles.breakdownLine, styles.breakdownLineLast]}>
-                <Text style={styles.breakdownReceivesLabel}>Requester receives</Text>
-                <Text style={styles.breakdownReceivesValue}>{formatNaira(requesterReceives)}</Text>
-              </View>
-            </View>
+              </>
+            ) : null}
           </View>
+
+          {isOwner ? (
+            <RequestDonorList
+              donations={begDonations}
+              total={donorTotal}
+              loading={donorsLoading}
+            />
+          ) : null}
 
           {isOwner ? (
             <View style={styles.ownerNotice}>
@@ -488,16 +681,37 @@ export default function RequestDetailScreen() {
                 You can&apos;t donate to your own request. Share this request so others can contribute.
               </Text>
             </View>
-          ) : !visitorCanDonate ? (
-            <View style={styles.closedNotice}>
-              <Ionicons name="lock-closed-outline" size={22} color="#6B7280" />
-              <Text style={styles.closedNoticeText}>
-                {timeRemaining === 'Pending approval'
-                  ? 'This request isn&apos;t open for contributions yet.'
-                  : 'This request is no longer accepting donations.'}
-              </Text>
-            </View>
           ) : (
+            <>
+              {viewerDonation ? (
+                <View style={styles.donorNotice}>
+                  <Ionicons name="checkmark-circle" size={24} color="#059669" />
+                  <View style={styles.donorNoticeTextWrap}>
+                    <Text style={styles.donorNoticeTitle}>
+                      You donated {formatNaira(viewerDonation.totalAmount)}
+                      {viewerDonation.donationCount > 1
+                        ? ` (${viewerDonation.donationCount} contributions)`
+                        : ''}
+                    </Text>
+                    <Text style={styles.donorNoticeBody}>
+                      {!visitorCanDonate
+                        ? 'Thank you for helping fund this request.'
+                        : 'Thank you — you can still contribute more if you would like.'}
+                    </Text>
+                  </View>
+                </View>
+              ) : !visitorCanDonate ? (
+                <View style={styles.closedNotice}>
+                  <Ionicons name="lock-closed-outline" size={22} color="#6B7280" />
+                  <Text style={styles.closedNoticeText}>
+                    {timeRemaining === 'Pending approval'
+                      ? 'This request isn&apos;t open for contributions yet.'
+                      : 'This request is no longer accepting donations.'}
+                  </Text>
+                </View>
+              ) : null}
+
+              {visitorCanDonate ? (
             <>
               <Text style={styles.sectionTitle}>Choose Amount</Text>
               <View style={styles.amountGrid}>
@@ -507,6 +721,7 @@ export default function RequestDetailScreen() {
                       label={opt.label}
                       selected={selectedAmount === opt.value}
                       onPress={() => {
+                        setAmountTouched(true);
                         setSelectedAmount(opt.value);
                         setCustomAmount('');
                         customAmountRef.current?.blur();
@@ -517,17 +732,25 @@ export default function RequestDetailScreen() {
               </View>
               <TextInput
                 ref={customAmountRef}
-                style={styles.customAmountField}
+                style={[
+                  styles.customAmountField,
+                  visibleDonationError && styles.customAmountFieldError,
+                ]}
                 placeholder="Custom Amount"
                 placeholderTextColor="#9CA3AF"
                 keyboardType="number-pad"
                 value={customAmount}
                 onChangeText={(t) => {
-                  setCustomAmount(t);
-                  if (t) setSelectedAmount(null);
+                  setAmountTouched(true);
+                  const formatted = formatAmountInput(t);
+                  setCustomAmount(formatted);
+                  if (formatted) setSelectedAmount(null);
                 }}
                 onFocus={() => setSelectedAmount(null)}
               />
+              {visibleDonationError ? (
+                <Text style={styles.amountError}>{visibleDonationError}</Text>
+              ) : null}
 
               <View style={styles.privacyCard}>
                 <View style={[styles.toggleRow, anonymousModeEnabled && styles.toggleRowLocked]}>
@@ -559,56 +782,18 @@ export default function RequestDetailScreen() {
                 </View>
               </View>
 
-              <Text style={styles.sectionTitle}>Payment Method</Text>
-              <View style={styles.paymentRow}>
-                <Pressable
-                  style={[styles.paymentChip, paymentMethod === 'card' && styles.paymentChipSelected]}
-                  onPress={() => setPaymentMethod('card')}
-                >
-                  <Ionicons
-                    name="card-outline"
-                    size={20}
-                    color={paymentMethod === 'card' ? '#2E8BEA' : '#1F2937'}
-                  />
-                  <Text
-                    style={[
-                      styles.paymentLabel,
-                      paymentMethod === 'card' && styles.paymentLabelSelected,
-                    ]}
-                  >
-                    Card
-                  </Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.paymentChip, paymentMethod === 'bank' && styles.paymentChipSelected]}
-                  onPress={() => setPaymentMethod('bank')}
-                >
-                  <Ionicons
-                    name="business-outline"
-                    size={20}
-                    color={paymentMethod === 'bank' ? '#2E8BEA' : '#1F2937'}
-                  />
-                  <Text
-                    style={[
-                      styles.paymentLabel,
-                      paymentMethod === 'bank' && styles.paymentLabelSelected,
-                    ]}
-                  >
-                    Bank Transfer
-                  </Text>
-                </Pressable>
-              </View>
-
               <CTAButton
                 variant="gradient"
                 label={donationSubmitting ? 'Processing…' : 'Continue'}
                 onPress={() => void onContinueDonation()}
-                disabled={donationSubmitting}
+                disabled={donationSubmitting || Boolean(donationAmountError)}
               />
 
               <Text style={styles.ctaSubtext}>
                 Only {formatNaira(amountNeeded)} needed to complete this request
               </Text>
+            </>
+              ) : null}
             </>
           )}
         </View>
@@ -619,6 +804,7 @@ export default function RequestDetailScreen() {
         amount={donationThankYou?.amount ?? 0}
         recipientName={donationThankYou?.recipientName ?? ''}
         showRecipientName={donationThankYou?.showRecipientName ?? true}
+        donationId={donationThankYou?.donationId}
         onDone={() => {
           setDonationThankYou(null);
           void loadRequest();
@@ -674,19 +860,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 16,
+    gap: 12,
   },
-  avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
+  requesterRowPressable: {
+    borderRadius: 12,
+    paddingVertical: 4,
+    paddingHorizontal: 2,
+    marginHorizontal: -2,
   },
-  avatarText: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#FFFFFF',
+  requesterRowPressed: {
+    opacity: 0.85,
+    backgroundColor: '#F9FAFB',
   },
   requesterInfo: {
     flex: 1,
@@ -704,6 +888,9 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#1F2937',
     flexShrink: 1,
+  },
+  nameLink: {
+    color: '#2E8BEA',
   },
   badge: {
     backgroundColor: '#DBEAFE',
@@ -884,7 +1071,7 @@ const styles = StyleSheet.create({
   customAmountField: {
     width: '100%',
     minHeight: 48,
-    marginBottom: 24,
+    marginBottom: 8,
     borderWidth: 1,
     borderColor: '#E5E7EB',
     borderRadius: 12,
@@ -894,6 +1081,16 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#1F2937',
     backgroundColor: '#FFFFFF',
+    textAlign: 'center',
+  },
+  customAmountFieldError: {
+    borderColor: '#DC2626',
+  },
+  amountError: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: '#DC2626',
+    marginBottom: 16,
     textAlign: 'center',
   },
   privacyCard: {
@@ -934,35 +1131,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#6B7280',
     marginTop: 2,
-  },
-  paymentRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 24,
-  },
-  paymentChip: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    backgroundColor: '#FFFFFF',
-  },
-  paymentChipSelected: {
-    borderColor: '#2E8BEA',
-    backgroundColor: '#EFF6FF',
-  },
-  paymentLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#1F2937',
-  },
-  paymentLabelSelected: {
-    color: '#2E8BEA',
   },
   ctaSubtext: {
     fontSize: 13,
@@ -1014,6 +1182,33 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     color: '#1E40AF',
+    fontWeight: '500',
+  },
+  donorNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: '#ECFDF5',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+  },
+  donorNoticeTextWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  donorNoticeTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#065F46',
+    marginBottom: 4,
+  },
+  donorNoticeBody: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#047857',
     fontWeight: '500',
   },
   closedNotice: {

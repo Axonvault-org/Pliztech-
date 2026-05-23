@@ -20,7 +20,6 @@ import {
   isDocumentVerified,
   useCurrentUser,
 } from '@/contexts/CurrentUserContext';
-import { formatCardBrandLabel, getSavedCards } from '@/lib/api/payment-methods';
 import { getProfilePicture, type ProfilePicture } from '@/lib/api/profile-picture';
 import { updateProfile } from '@/lib/api/profile';
 import { getAccessToken } from '@/lib/auth/access-token';
@@ -29,8 +28,6 @@ import {
   recoverFromUnauthorized,
 } from '@/lib/auth/session-expired';
 
-const PAYMENT_CARDS_SUBTITLE_DEFAULT = 'Add or manage your cards';
-
 export default function ProfileScreen() {
   const { user, isLoading, refreshUser, signOut } = useCurrentUser();
   const [anonToggling, setAnonToggling] = useState(false);
@@ -38,48 +35,7 @@ export default function ProfileScreen() {
 
   const [pushNotifications, setPushNotifications] = useState(true);
   const [anonymousMode, setAnonymousMode] = useState(false);
-  const [paymentCardsSubtitle, setPaymentCardsSubtitle] = useState(PAYMENT_CARDS_SUBTITLE_DEFAULT);
   const [profilePicture, setProfilePicture] = useState<ProfilePicture | null>(null);
-
-  const loadPaymentCardsSubtitle = useCallback(
-    async (retryAfterRefresh = false) => {
-      try {
-        const token = await getAccessToken();
-        if (!token) {
-          setPaymentCardsSubtitle(PAYMENT_CARDS_SUBTITLE_DEFAULT);
-          return;
-        }
-        const cards = await getSavedCards(token);
-        if (cards.length === 0) {
-          setPaymentCardsSubtitle('No cards saved yet — add one when you donate');
-          return;
-        }
-        const def = cards.find((c) => c.isDefault) ?? cards[0];
-        if (!def) {
-          setPaymentCardsSubtitle(PAYMENT_CARDS_SUBTITLE_DEFAULT);
-          return;
-        }
-        const brand = formatCardBrandLabel(def.cardType);
-        if (cards.length === 1) {
-          setPaymentCardsSubtitle(`${brand} •••• ${def.last4}`);
-        } else {
-          setPaymentCardsSubtitle(
-            `${cards.length} cards · Default ${brand} •••• ${def.last4}`
-          );
-        }
-      } catch (e) {
-        if (isUnauthorizedSessionError(e) && !retryAfterRefresh) {
-          const recovered = await recoverFromUnauthorized(signOut);
-          if (recovered) {
-            await loadPaymentCardsSubtitle(true);
-          }
-          return;
-        }
-        setPaymentCardsSubtitle(PAYMENT_CARDS_SUBTITLE_DEFAULT);
-      }
-    },
-    [signOut]
-  );
 
   const loadProfilePicture = useCallback(
     async (retryAfterRefresh = false) => {
@@ -109,9 +65,8 @@ export default function ProfileScreen() {
         lastRefreshRef.current = now;
         void refreshUser();
       }
-      void loadPaymentCardsSubtitle();
       void loadProfilePicture();
-    }, [refreshUser, loadPaymentCardsSubtitle, loadProfilePicture])
+    }, [refreshUser, loadProfilePicture])
   );
 
   useEffect(() => {
@@ -174,8 +129,14 @@ export default function ProfileScreen() {
           <ProfileRow
             icon="wallet-outline"
             title="Withdraw Funds"
-            subtitle="Cash out from funded requests"
+            subtitle="Cash out when funded or after a request ends"
             onPress={() => router.push('/(tabs)/withdraw-funds')}
+          />
+          <ProfileRow
+            icon="receipt-outline"
+            title="Withdrawal History"
+            subtitle="View past payouts and their status"
+            onPress={() => router.push('/(tabs)/withdrawal-history')}
             isLast
           />
         </ProfileSection>
@@ -217,12 +178,6 @@ export default function ProfileScreen() {
                 setAnonToggling(false);
               }
             }}
-          />
-          <ProfileRow
-            icon="card-outline"
-            title="Payment Cards"
-            subtitle={paymentCardsSubtitle}
-            onPress={() => router.push('/(tabs)/payment-cards')}
           />
           <ProfileRow
             icon="lock-closed-outline"

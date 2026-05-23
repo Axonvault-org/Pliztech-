@@ -22,10 +22,10 @@ import { Text } from '@/components/Text';
 
 import { AppHeaderTitleRow } from '@/components/layout/AppHeaderTitleRow';
 import { Screen } from '@/components/Screen';
+import { CTAButton } from '@/components/CTAButton';
 import { ConfirmWithdrawalSummary } from '@/components/withdraw/ConfirmWithdrawalSummary';
 import { FundedWithdrawRequestCard } from '@/components/withdraw/FundedWithdrawRequestCard';
 import { VerifiedAccountNameCard } from '@/components/withdraw/VerifiedAccountNameCard';
-import { WithdrawFundsGradientButton } from '@/components/withdraw/WithdrawFundsGradientButton';
 import { WithdrawFundsShieldNotice } from '@/components/withdraw/WithdrawFundsShieldNotice';
 import { WithdrawProgressSteps } from '@/components/withdraw/WithdrawProgressSteps';
 import {
@@ -39,10 +39,15 @@ import { categoryEmojiForId } from '@/constants/categories';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
 import {
   apiCategorySlugToUiCategoryId,
-  begFeedItemToActivityRequest,
   getMyBegs,
   type BegFeedItem,
 } from '@/lib/api/beg';
+import {
+  begFundingProgress,
+  begRaisedAmount,
+  isBegRequestPeriodEnded,
+  isBegWithdrawable,
+} from '@/lib/beg/withdrawable';
 import { getBegDonations } from '@/lib/api/donations';
 import { PlizApiError } from '@/lib/api/types';
 import type { WithdrawalApiItem } from '@/lib/api/withdrawals';
@@ -87,11 +92,11 @@ type WithdrawRow = {
 };
 
 function buildRows(
-  fundedBegs: BegFeedItem[],
+  withdrawableBegs: BegFeedItem[],
   withdrawals: WithdrawalApiItem[],
   donorCountByBeg: Map<string, number>
 ): WithdrawRow[] {
-  return fundedBegs.map((beg) => {
+  return withdrawableBegs.map((beg) => {
     const uiCat = apiCategorySlugToUiCategoryId(beg.category.slug);
     const emoji = categoryEmojiForId(uiCat);
     const title = (beg.title ?? '').trim() || 'Your request';
@@ -103,7 +108,16 @@ function buildRows(
           ? '1 donor contributed'
           : `${donors} donors contributed`;
 
-    const raised = Math.round(Number(beg.amountRaised) || 0);
+    const raised = begRaisedAmount(beg);
+    const goal = Math.round(Number(beg.amountRequested) || 0);
+    const barFillRatio = begFundingProgress(beg);
+    const isFullyFunded = beg.status === 'funded' || (goal > 0 && raised >= goal);
+    const periodEnded = isBegRequestPeriodEnded(beg);
+    const defaultStatusLabel = isFullyFunded
+      ? 'Fully funded'
+      : periodEnded
+        ? 'Expired · Withdrawable'
+        : 'Withdrawable';
     const w = latestWithdrawalForBeg(withdrawals, beg.id);
 
     if (!w || w.status === 'failed') {
@@ -113,9 +127,12 @@ function buildRows(
         emoji,
         title,
         donorSubtitle,
-        statusLabel: 'Withdrawable',
-        amountLabel: formatNaira(raised),
-        barFillRatio: 1,
+        statusLabel: defaultStatusLabel,
+        amountLabel:
+          goal > 0 && raised < goal
+            ? `${formatNaira(raised)} of ${formatNaira(goal)}`
+            : formatNaira(raised),
+        barFillRatio,
         barColor: BLUE_BAR,
         selectable: true,
       };
@@ -130,7 +147,7 @@ function buildRows(
         donorSubtitle,
         statusLabel: 'Withdrawal Processing',
         amountLabel: formatNaira(w.amount_received),
-        barFillRatio: 1,
+        barFillRatio,
         barColor: ORANGE_BAR,
         selectable: false,
       };
@@ -157,9 +174,12 @@ function buildRows(
       emoji,
       title,
       donorSubtitle,
-      statusLabel: 'Withdrawable',
-      amountLabel: formatNaira(raised),
-      barFillRatio: 1,
+      statusLabel: defaultStatusLabel,
+      amountLabel:
+        goal > 0 && raised < goal
+          ? `${formatNaira(raised)} of ${formatNaira(goal)}`
+          : formatNaira(raised),
+      barFillRatio,
       barColor: BLUE_BAR,
       selectable: true,
     };
@@ -249,14 +269,11 @@ export default function WithdrawFundsScreen() {
           getUserWithdrawals(token, { page: 1, limit: 100 }),
         ]);
 
-        const funded = begsRes.begs.filter((b) => {
-          const act = begFeedItemToActivityRequest(b);
-          return act.status === 'funded';
-        });
+        const withdrawable = begsRes.begs.filter((b) => isBegWithdrawable(b));
 
         const donorMap = new Map<string, number>();
         await Promise.all(
-          funded.map(async (b) => {
+          withdrawable.map(async (b) => {
             try {
               const d = await getBegDonations(b.id, { page: 1, limit: 1 });
               donorMap.set(b.id, d.pagination.total);
@@ -266,7 +283,7 @@ export default function WithdrawFundsScreen() {
           })
         );
 
-        setRows(buildRows(funded, wdRes.withdrawals, donorMap));
+        setRows(buildRows(withdrawable, wdRes.withdrawals, donorMap));
       } catch (e) {
         if (isUnauthorizedSessionError(e) && !retry) {
           const ok = await recoverFromUnauthorized(signOut);
@@ -370,8 +387,7 @@ export default function WithdrawFundsScreen() {
           setStep3LoadError('This request could not be loaded.');
           return;
         }
-        const act = begFeedItemToActivityRequest(beg);
-        if (act.status !== 'funded') {
+        if (!isBegWithdrawable(beg)) {
           setStep3LoadError('This request is no longer available for withdrawal.');
           return;
         }
@@ -652,92 +668,100 @@ export default function WithdrawFundsScreen() {
   };
 
   return (
-    <Screen backgroundColor={step === 3 ? '#F9FAFB' : '#FFFFFF'}>
-      <View style={{ paddingTop: 8 }}>
-        <AppHeaderTitleRow
-          title="Withdraw Funds"
-          onPressBack={goBackFromStep2Or3}
-          marginBottom={8}
-        />
-      </View>
+    <>
+      <Screen
+        backgroundColor={step === 3 ? '#F9FAFB' : '#FFFFFF'}
+        contentStyle={styles.screenContent}
+      >
+        <View style={styles.page}>
+          <AppHeaderTitleRow
+            title="Withdraw Funds"
+            onPressBack={goBackFromStep2Or3}
+            marginBottom={8}
+          />
 
-      <View style={styles.body}>
-        <WithdrawProgressSteps currentStep={step} totalSteps={3} />
+          <WithdrawProgressSteps currentStep={step} totalSteps={3} />
 
-        {step === 1 ? (
-          <>
-            <Text style={styles.screenTitle}>Select a funded request</Text>
-            <Text style={styles.screenSubtitle}>
-              Choose which request you’d like to withdraw from
-            </Text>
+          {step === 1 ? (
+            <View style={styles.step1Column}>
+              <View style={styles.step1Body}>
+                <ScrollView
+                  style={styles.step1Scroll}
+                  contentContainerStyle={styles.step1ScrollContent}
+                  refreshControl={
+                    <RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />
+                  }
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  <Text style={styles.screenTitle}>Select a request</Text>
+                  <Text style={styles.screenSubtitle}>
+                    Withdraw donations from fully funded requests or from expired requests with
+                    partial funding
+                  </Text>
 
-            {loading && rows.length === 0 ? (
-              <View style={styles.centered}>
-                <ActivityIndicator size="large" color="#2E8BEA" />
-                <Text style={styles.loadingHint}>Loading your funded requests…</Text>
+                  {loading && rows.length === 0 ? (
+                    <View style={styles.centered}>
+                      <ActivityIndicator size="large" color="#2E8BEA" />
+                      <Text style={styles.loadingHint}>Loading withdrawable requests…</Text>
+                    </View>
+                  ) : null}
+
+                  {error && !loading ? (
+                    <View style={styles.errorBox}>
+                      <Text style={styles.errorText}>{error}</Text>
+                      <Pressable onPress={() => void load()} style={styles.retryWrap}>
+                        <Text style={styles.retryText}>Retry</Text>
+                      </Pressable>
+                    </View>
+                  ) : null}
+
+                  {!loading && !error && rows.length === 0 ? (
+                    <View style={styles.emptyWrap}>
+                      <Text style={styles.emptyEmoji}>🏦</Text>
+                      <Text style={styles.emptyTitle}>Nothing to withdraw yet</Text>
+                      <Text style={styles.emptySub}>
+                        When a request is fully funded or expires with donations, it will appear
+                        here so you can withdraw to your bank account.
+                      </Text>
+                    </View>
+                  ) : null}
+
+                  {rows.map((item) => (
+                    <FundedWithdrawRequestCard
+                      key={item.begId}
+                      emoji={item.emoji}
+                      title={item.title}
+                      donorSubtitle={item.donorSubtitle}
+                      statusLabel={item.statusLabel}
+                      amountLabel={item.amountLabel}
+                      barFillRatio={item.barFillRatio}
+                      barColor={item.barColor}
+                      selected={selectedBegId === item.begId}
+                      disabled={!item.selectable}
+                      onPress={item.selectable ? () => handleSelectRow(item) : undefined}
+                    />
+                  ))}
+                </ScrollView>
               </View>
-            ) : null}
 
-            {error && !loading ? (
-              <View style={styles.errorBox}>
-                <Text style={styles.errorText}>{error}</Text>
-                <Pressable onPress={() => void load()} style={styles.retryWrap}>
-                  <Text style={styles.retryText}>Retry</Text>
-                </Pressable>
-              </View>
-            ) : null}
-
-            <FlatList
-              style={styles.list}
-              data={rows}
-              keyExtractor={(item) => item.begId}
-              refreshControl={
-                <RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />
-              }
-              contentContainerStyle={styles.listContent}
-              showsVerticalScrollIndicator={false}
-              ListEmptyComponent={
-                !loading && !error ? (
-                  <View style={styles.emptyWrap}>
-                    <Text style={styles.emptyEmoji}>🏦</Text>
-                    <Text style={styles.emptyTitle}>No funded requests yet</Text>
-                    <Text style={styles.emptySub}>
-                      When a request is fully funded, it will appear here so you can withdraw to your
-                      bank account.
-                    </Text>
+              {rows.some((r) => r.selectable) ? (
+                <View style={[styles.footerBar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+                  <View style={styles.ctaWrap}>
+                    <CTAButton
+                      label="Continue"
+                      onPress={handleContinueStep1}
+                      variant="gradient"
+                      disabled={!selectedBegId}
+                      accessibilityLabel="Continue to bank details"
+                    />
                   </View>
-                ) : null
-              }
-              renderItem={({ item }) => (
-                <FundedWithdrawRequestCard
-                  emoji={item.emoji}
-                  title={item.title}
-                  donorSubtitle={item.donorSubtitle}
-                  statusLabel={item.statusLabel}
-                  amountLabel={item.amountLabel}
-                  barFillRatio={item.barFillRatio}
-                  barColor={item.barColor}
-                  selected={selectedBegId === item.begId}
-                  disabled={!item.selectable}
-                  onPress={item.selectable ? () => handleSelectRow(item) : undefined}
-                />
-              )}
-            />
+                </View>
+              ) : null}
+            </View>
+          ) : null}
 
-            {rows.some((r) => r.selectable) ? (
-              <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
-                <WithdrawFundsGradientButton
-                  label="Continue"
-                  onPress={handleContinueStep1}
-                  disabled={!selectedBegId}
-                  accessibilityLabel="Continue to bank details"
-                />
-              </View>
-            ) : null}
-          </>
-        ) : null}
-
-        {step === 2 ? (
+          {step === 2 ? (
           <KeyboardAvoidingView
             style={styles.step2Flex}
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -815,13 +839,15 @@ export default function WithdrawFundsScreen() {
             </ScrollView>
 
             <View style={[styles.step2Footer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-              <WithdrawFundsGradientButton
-                label="Continue"
-                onPress={() => void handleStep2Continue(false)}
-                disabled={!step2CanContinue}
-                loading={step2Submitting}
-                accessibilityLabel="Continue to confirmation"
-              />
+              <View style={styles.ctaWrap}>
+                <CTAButton
+                  label={step2Submitting ? 'Saving…' : 'Continue'}
+                  onPress={() => void handleStep2Continue(false)}
+                  variant="gradient"
+                  disabled={!step2CanContinue || step2Submitting}
+                  accessibilityLabel="Continue to confirmation"
+                />
+              </View>
             </View>
           </KeyboardAvoidingView>
         ) : null}
@@ -891,17 +917,21 @@ export default function WithdrawFundsScreen() {
 
             {step3Summary && !step3Loading && !step3LoadError ? (
               <View style={[styles.step3Footer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-                <WithdrawFundsGradientButton
-                  label="Continue"
-                  onPress={() => void handleConfirmWithdrawal()}
-                  loading={confirmSubmitting}
-                  accessibilityLabel="Confirm and submit withdrawal"
-                />
+                <View style={styles.ctaWrap}>
+                  <CTAButton
+                    label={confirmSubmitting ? 'Submitting…' : 'Continue'}
+                    onPress={() => void handleConfirmWithdrawal()}
+                    variant="gradient"
+                    disabled={confirmSubmitting}
+                    accessibilityLabel="Confirm and submit withdrawal"
+                  />
+                </View>
               </View>
             ) : null}
           </View>
         ) : null}
-      </View>
+        </View>
+      </Screen>
 
       <Modal
         visible={bankPickerOpen}
@@ -961,11 +991,41 @@ export default function WithdrawFundsScreen() {
           />
         )}
       </Modal>
-    </Screen>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
+  screenContent: {
+    flex: 1,
+    paddingBottom: 0,
+    paddingTop: 8,
+  },
+  page: {
+    flex: 1,
+  },
+  step1Column: {
+    flex: 1,
+    minHeight: 0,
+  },
+  step1Body: {
+    flex: 1,
+    minHeight: 0,
+  },
+  step1Scroll: {
+    flex: 1,
+  },
+  step1ScrollContent: {
+    flexGrow: 1,
+    paddingBottom: 16,
+  },
+  footerBar: {
+    marginTop: 'auto',
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+  },
   body: {
     flex: 1,
   },
@@ -1010,13 +1070,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#2E8BEA',
   },
-  list: {
-    flex: 1,
-  },
-  listContent: {
-    paddingBottom: 120,
-    flexGrow: 1,
-  },
   emptyWrap: {
     alignItems: 'center',
     paddingVertical: 48,
@@ -1038,21 +1091,16 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 21,
   },
-  footer: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: '#FFFFFF',
-    paddingTop: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#E5E7EB',
+  ctaWrap: {
+    width: '100%',
+    alignItems: 'center',
   },
   pressed: {
     opacity: 0.9,
   },
   step2Flex: {
     flex: 1,
+    minHeight: 0,
   },
   step2ScrollContent: {
     paddingBottom: 24,
@@ -1126,6 +1174,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   step2Footer: {
+    marginTop: 'auto',
     paddingTop: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: '#E5E7EB',
@@ -1133,12 +1182,13 @@ const styles = StyleSheet.create({
   },
   step3Wrap: {
     flex: 1,
+    minHeight: 0,
   },
   step3Scroll: {
     flex: 1,
   },
   step3ScrollContent: {
-    paddingBottom: 120,
+    paddingBottom: 24,
     flexGrow: 1,
   },
   step3LoadingBox: {
@@ -1151,6 +1201,7 @@ const styles = StyleSheet.create({
     color: '#6B7280',
   },
   step3Footer: {
+    marginTop: 'auto',
     paddingTop: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: '#E5E7EB',

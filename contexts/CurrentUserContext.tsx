@@ -59,17 +59,12 @@ export function isDocumentVerified(user: MeUser | null): boolean {
   return Boolean(user?.verification?.isVerified ?? user?.verification?.documentVerified);
 }
 
-/**
- * Whether user may request more than ₦10k (gov ID + at least 2 successful begs or any donation).
- * Matches product rule approximately until GET /me includes explicit flags.
- */
+/** Whether user may request more than ₦10k (verified + at least 1 donation). */
 export function canRequestHighAmountBeg(user: MeUser | null): boolean {
   if (!user) return false;
-  if (!isDocumentVerified(user)) return false;
-  const stats = user.stats;
-  const reqs = stats?.requestsCount ?? 0;
-  const donated = Number(stats?.totalDonated) || 0;
-  return reqs >= 2 || donated > 0;
+  const isVerified = Boolean(user.verification?.isVerified);
+  const hasDonated = (Number(user.stats?.totalDonated) || 0) > 0;
+  return isVerified && hasDonated;
 }
 
 /** Header name + email respecting anonymous mode (hides PII). */

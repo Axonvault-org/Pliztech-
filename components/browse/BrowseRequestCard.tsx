@@ -5,6 +5,7 @@ import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Text } from '@/components/Text';
 
 import { ProgressBar } from '@/components/ProgressBar';
+import { RequesterAvatar } from '@/components/request/RequesterAvatar';
 import { REQUEST_CATEGORIES } from '@/constants/categories';
 
 import type { BrowseRequest } from '@/lib/types/home';
@@ -34,6 +35,7 @@ export function BrowseRequestCard({ request, onPress }: BrowseRequestCardProps) 
     name,
     initial,
     avatarColor,
+    avatarUrl,
     timeLeft,
     categoryId,
     categoryLabel,
@@ -61,9 +63,13 @@ export function BrowseRequestCard({ request, onPress }: BrowseRequestCardProps) 
       >
       <View style={styles.topRow}>
         <View style={styles.left}>
-          <View style={[styles.avatar, { backgroundColor: avatarColor }]}>
-            <Text style={styles.avatarText}>{initial}</Text>
-          </View>
+          <RequesterAvatar
+            size={40}
+            initial={initial}
+            avatarColor={avatarColor}
+            avatarUrl={avatarUrl}
+            maskAvatar={name.toLowerCase() === 'anonymous'}
+          />
           <View style={styles.nameWrap}>
             <View style={styles.nameRow}>
               <Text style={styles.name} numberOfLines={1}>
@@ -131,19 +137,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
-  },
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  avatarText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#FFFFFF',
+    gap: 12,
   },
   nameWrap: {
     flex: 1,

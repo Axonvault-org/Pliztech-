@@ -20,6 +20,7 @@ import {
 } from '@/lib/api/profile-picture';
 import { formatPlizApiErrorForUser } from '@/lib/api/types';
 import { getAccessToken } from '@/lib/auth/access-token';
+import { withUnauthorizedRecovery } from '@/lib/auth/session-expired';
 
 function mimeFromUri(uri: string): string {
   const lower = uri.toLowerCase();
@@ -30,7 +31,7 @@ function mimeFromUri(uri: string): string {
 }
 
 export default function ProfilePictureScreen() {
-  const { refreshUser } = useCurrentUser();
+  const { refreshUser, signOut } = useCurrentUser();
   const [picture, setPicture] = useState<ProfilePicture | null>(null);
   const [options, setOptions] = useState<ProfilePictureOptions | null>(null);
   const [loading, setLoading] = useState(true);
@@ -67,8 +68,7 @@ export default function ProfilePictureScreen() {
   };
 
   const choosePhoto = async () => {
-    const token = await getAccessToken();
-    if (!token || saving) return;
+    if (saving) return;
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
       Alert.alert('Permission needed', 'Allow photo access to upload a profile picture.');
@@ -84,11 +84,13 @@ export default function ProfilePictureScreen() {
     const asset = picked.assets[0];
     setSaving(true);
     try {
-      const updated = await uploadProfilePicture(token, {
-        uri: asset.uri,
-        name: asset.fileName ?? `avatar-${Date.now()}.jpg`,
-        type: asset.mimeType ?? mimeFromUri(asset.uri),
-      });
+      const updated = await withUnauthorizedRecovery(signOut, (token) =>
+        uploadProfilePicture(token, {
+          uri: asset.uri,
+          name: asset.fileName ?? `avatar-${Date.now()}.jpg`,
+          type: asset.mimeType ?? mimeFromUri(asset.uri),
+        })
+      );
       await applyPicture(updated);
       Alert.alert('Profile picture updated', 'Your new photo is now on your profile.');
     } catch (e) {
@@ -99,11 +101,12 @@ export default function ProfilePictureScreen() {
   };
 
   const chooseColor = async (color: string) => {
-    const token = await getAccessToken();
-    if (!token || saving) return;
+    if (saving) return;
     setSaving(true);
     try {
-      await applyPicture(await setInitialsAvatar(token, color));
+      await applyPicture(
+        await withUnauthorizedRecovery(signOut, (token) => setInitialsAvatar(token, color))
+      );
     } catch (e) {
       Alert.alert('Could not update avatar', formatPlizApiErrorForUser(e));
     } finally {
@@ -112,11 +115,12 @@ export default function ProfilePictureScreen() {
   };
 
   const chooseLibraryAvatar = async (avatarId: string) => {
-    const token = await getAccessToken();
-    if (!token || saving) return;
+    if (saving) return;
     setSaving(true);
     try {
-      await applyPicture(await setLibraryAvatar(token, avatarId));
+      await applyPicture(
+        await withUnauthorizedRecovery(signOut, (token) => setLibraryAvatar(token, avatarId))
+      );
     } catch (e) {
       Alert.alert('Could not update avatar', formatPlizApiErrorForUser(e));
     } finally {
@@ -125,11 +129,12 @@ export default function ProfilePictureScreen() {
   };
 
   const remove = async () => {
-    const token = await getAccessToken();
-    if (!token || saving) return;
+    if (saving) return;
     setSaving(true);
     try {
-      await applyPicture(await removeProfilePicture(token));
+      await applyPicture(
+        await withUnauthorizedRecovery(signOut, (token) => removeProfilePicture(token))
+      );
     } catch (e) {
       Alert.alert('Could not remove photo', formatPlizApiErrorForUser(e));
     } finally {

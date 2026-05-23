@@ -1,14 +1,15 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect } from '@react-navigation/native';
+import { router, type Href } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Dimensions,
   FlatList,
   NativeSyntheticEvent,
   NativeScrollEvent,
   Pressable,
   StyleSheet,
+  useWindowDimensions,
   View,
 } from 'react-native';
 
@@ -24,9 +25,7 @@ import {
   recoverFromUnauthorized,
 } from '@/lib/auth/session-expired';
 
-const SCREEN_PADDING = 48;
-const CARD_MARGIN = 12;
-const CARD_WIDTH = Dimensions.get('window').width - SCREEN_PADDING - CARD_MARGIN * 4;
+const CARD_GUTTER = 8;
 
 function storyItemToCardData(item: StoryItem): StoryCardData {
   const name = item.user.username?.trim() || 'Member';
@@ -44,6 +43,7 @@ function storyItemToCardData(item: StoryItem): StoryCardData {
 
 export function CommunityStories() {
   const { signOut } = useCurrentUser();
+  const { width } = useWindowDimensions();
   const [stories, setStories] = useState<StoryCardData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -89,15 +89,16 @@ export function CommunityStories() {
 
   const count = stories.length;
   const maxIndex = Math.max(0, count - 1);
+  const cardWidth = Math.max(240, width - 48);
 
   const onScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-      if (count === 0) return;
+      if (count === 0 || cardWidth <= 0) return;
       const offset = e.nativeEvent.contentOffset.x;
-      const index = Math.round(offset / (CARD_WIDTH + CARD_MARGIN * 2));
+      const index = Math.round(offset / cardWidth);
       setActiveIndex(Math.min(Math.max(0, index), maxIndex));
     },
-    [count, maxIndex]
+    [cardWidth, count, maxIndex]
   );
 
   const goPrev = useCallback(() => {
@@ -118,22 +119,24 @@ export function CommunityStories() {
     }
   }, [activeIndex, maxIndex]);
 
-  const renderItem = useCallback(
-    ({ item }: { item: StoryCardData }) => (
-      <View style={styles.cardWrap}>
-        <StoryCard story={item} />
-      </View>
-    ),
-    []
-  );
-
   return (
     <View style={styles.container}>
       <View style={styles.sectionHeader}>
-        <View style={styles.sectionIcon}>
-          <Ionicons name="sparkles" size={20} color="#2E8BEA" />
+        <View style={styles.sectionTitleRow}>
+          <View style={styles.sectionIcon}>
+            <Ionicons name="sparkles" size={20} color="#2E8BEA" />
+          </View>
+          <Text style={styles.sectionTitle}>Community Stories</Text>
         </View>
-        <Text style={styles.sectionTitle}>Community Stories</Text>
+        <Pressable
+          onPress={() => router.push('/(tabs)/share-story' as Href)}
+          style={styles.shareStoryBtn}
+          accessibilityRole="button"
+          accessibilityLabel="Add your testimony"
+        >
+          <Ionicons name="create-outline" size={17} color="#2E8BEA" />
+          <Text style={styles.shareStoryText}>Add testimony</Text>
+        </Pressable>
       </View>
 
       {loading ? (
@@ -147,15 +150,20 @@ export function CommunityStories() {
           No approved stories yet. Share yours from a funded request or the stories screen.
         </Text>
       ) : (
-        <>
+        <View style={styles.carouselWrap}>
           <FlatList<StoryCardData>
             ref={flatListRef}
             data={stories}
-            renderItem={renderItem}
+            style={{ width: cardWidth, alignSelf: 'center' }}
+            renderItem={({ item }) => (
+              <View style={[styles.cardWrap, { width: cardWidth }]}>
+                <StoryCard story={item} />
+              </View>
+            )}
             keyExtractor={(item) => item.id}
             horizontal
             pagingEnabled={false}
-            snapToInterval={CARD_WIDTH + CARD_MARGIN * 2}
+            snapToInterval={cardWidth || undefined}
             snapToAlignment="start"
             decelerationRate="fast"
             showsHorizontalScrollIndicator={false}
@@ -163,8 +171,8 @@ export function CommunityStories() {
             scrollEventThrottle={16}
             contentContainerStyle={styles.carouselContent}
             getItemLayout={(_, index) => ({
-              length: CARD_WIDTH + CARD_MARGIN * 2,
-              offset: (CARD_WIDTH + CARD_MARGIN * 2) * index,
+              length: cardWidth,
+              offset: cardWidth * index,
               index,
             })}
           />
@@ -213,7 +221,7 @@ export function CommunityStories() {
               />
             </Pressable>
           </View>
-        </>
+        </View>
       )}
     </View>
   );
@@ -226,7 +234,15 @@ const styles = StyleSheet.create({
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
     marginBottom: 16,
+  },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    minWidth: 0,
   },
   sectionIcon: {
     width: 32,
@@ -241,6 +257,20 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     color: '#1F2937',
+  },
+  shareStoryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: '#EFF6FF',
+  },
+  shareStoryText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#2E8BEA',
   },
   centered: {
     paddingVertical: 24,
@@ -257,13 +287,14 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginBottom: 8,
   },
+  carouselWrap: {
+    width: '100%',
+  },
   carouselContent: {
-    paddingHorizontal: 12,
     paddingBottom: 20,
   },
   cardWrap: {
-    width: CARD_WIDTH,
-    marginHorizontal: CARD_MARGIN,
+    paddingHorizontal: CARD_GUTTER,
   },
   controls: {
     flexDirection: 'row',

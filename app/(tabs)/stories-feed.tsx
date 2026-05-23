@@ -95,6 +95,24 @@ export default function StoriesFeedScreen() {
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#2E8BEA" />
           }
         >
+          <Pressable
+            onPress={() => router.push('/(tabs)/share-story' as import('expo-router').Href)}
+            style={styles.testimonyCard}
+            accessibilityRole="button"
+            accessibilityLabel="Add your testimony"
+          >
+            <View style={styles.testimonyIcon}>
+              <Ionicons name="sparkles" size={20} color="#2E8BEA" />
+            </View>
+            <View style={styles.testimonyCopy}>
+              <Text style={styles.testimonyTitle}>Add your testimony</Text>
+              <Text style={styles.testimonySubtitle}>
+                Share how Plz helped you or someone you supported.
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
+          </Pressable>
+
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
           {!error && stories.length === 0 ? (
             <Text style={styles.empty}>No stories yet. Be the first to share yours.</Text>
@@ -143,6 +161,40 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     textAlign: 'center',
     marginTop: 24,
+  },
+  testimonyCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
+  },
+  testimonyIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#EFF6FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  testimonyCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  testimonyTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  testimonySubtitle: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#6B7280',
+    marginTop: 2,
   },
   card: {
     backgroundColor: '#FFFFFF',
