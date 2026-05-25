@@ -1,8 +1,10 @@
-import { router } from 'expo-router';
-
 import type { OAuthLoginSuccessData } from '@/lib/api/types';
 import { setTokens } from '@/lib/auth/access-token';
 import { resetSessionRecoveryState } from '@/lib/auth/session-expired';
+import {
+  enterAuthenticatedApp,
+  enterSignupProfile,
+} from '@/lib/navigation/auth-navigation';
 
 /**
  * Store tokens, refresh `/me`, and route per API `nextStep` / profile completion.
@@ -15,8 +17,8 @@ export async function applyOAuthLoginResult(
   resetSessionRecoveryState();
   await refreshUser();
   if (result.nextStep === 'complete_profile' || !result.user.isProfileComplete) {
-    router.replace('/(auth)/signup-profile' as import('expo-router').Href);
+    enterSignupProfile();
   } else {
-    router.replace('/(tabs)' as import('expo-router').Href);
+    enterAuthenticatedApp('/(tabs)' as import('expo-router').Href);
   }
 }

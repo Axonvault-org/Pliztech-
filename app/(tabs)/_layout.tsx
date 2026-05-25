@@ -2,6 +2,7 @@ import { Redirect, Stack } from 'expo-router';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
+import { useAndroidAuthenticatedBackHandler } from '@/hooks/useAndroidAuthenticatedBackHandler';
 
 export const unstable_settings = {
   initialRouteName: '(main)',
@@ -13,6 +14,8 @@ export const unstable_settings = {
  */
 export default function TabLayout() {
   const { user, isLoading } = useCurrentUser();
+
+  useAndroidAuthenticatedBackHandler(Boolean(user));
 
   /** Only block the tab stack during the initial session resolve, not background `/me` refetches. */
   if (isLoading && !user) {

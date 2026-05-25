@@ -5,6 +5,7 @@ import { Text } from '@/components/Text';
 
 import { BackgroundImageScreen } from '@/components/BackgroundImageScreen';
 import { CTAButton } from '@/components/CTAButton';
+import { enterLogin } from '@/lib/navigation/auth-navigation';
 
 const WELCOME_BG = require('@/assets/images/welcome-bg.png');
 
@@ -16,11 +17,11 @@ const SPACING = {
 
 export default function WelcomeScreen() {
   const onLogin = () => {
-    router.push('/(auth)/login' as import('expo-router').Href);
+    enterLogin();
   };
 
   const onRegister = () => {
-    router.push('/(auth)/register' as import('expo-router').Href);
+    router.replace('/(auth)/register' as import('expo-router').Href);
   };
 
   return (
@@ -55,6 +56,8 @@ export default function WelcomeScreen() {
 
 const styles = StyleSheet.create({
   stack: {
+    width: '100%',
+    alignSelf: 'stretch',
     alignItems: 'center',
     flexShrink: 1,
   },
@@ -79,6 +82,7 @@ const styles = StyleSheet.create({
   },
   buttons: {
     width: '100%',
+    alignSelf: 'stretch',
     gap: SPACING.buttonGap,
   },
 });

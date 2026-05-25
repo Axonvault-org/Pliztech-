@@ -3,7 +3,11 @@ import * as WebBrowser from 'expo-web-browser';
 import { Platform } from 'react-native';
 
 import type { VerifyDonationApiResult } from '@/lib/api/donations';
-import { verifyDonationByReference } from '@/lib/api/donations';
+import {
+  verifyDonationByReference,
+  waitForDonationVerification,
+} from '@/lib/api/donations';
+import { referenceFromPaystackRedirectUrl } from '@/lib/donation/paystack-callback-url';
 
 export type PaystackCheckoutResult =
   | { outcome: 'completed'; verifiedResult?: VerifyDonationApiResult | null }
@@ -14,10 +18,11 @@ export type OpenPaystackCheckoutOptions = {
   redirectUrl?: string;
   paymentReference?: string;
   skipNavigation?: boolean;
+  onStatusChange?: (status: 'opening' | 'redirected' | 'confirming' | 'confirmed') => void;
 };
 
-/** How often we ask the API if Paystack has confirmed (ms). */
-const PAYMENT_POLL_MS = 800;
+/** Poll interval while Paystack in-app browser is open. */
+const PAYMENT_POLL_MS = 600;
 
 function navigateToPaymentCallback(reference: string): void {
   router.replace({
@@ -28,7 +33,6 @@ function navigateToPaymentCallback(reference: string): void {
 
 /**
  * Poll verify while Paystack is open; dismiss the in-app browser the instant payment succeeds.
- * Uses openBrowserAsync (not openAuthSessionAsync) because dismissBrowser() is reliable on iOS.
  */
 function startPaymentConfirmationPoll(
   paymentReference: string,
@@ -44,8 +48,11 @@ function startPaymentConfirmationPoll(
       if (result.success && !stopped) {
         stopped = true;
         if (timer) clearInterval(timer);
-        // Close browser immediately — do not await; Paystack success page should vanish at once.
-        void WebBrowser.dismissBrowser();
+        try {
+          WebBrowser.dismissAuthSession();
+        } catch {
+          void WebBrowser.dismissBrowser();
+        }
         onConfirmed(result);
       }
     } catch {
@@ -64,8 +71,8 @@ function startPaymentConfirmationPoll(
 
 /**
  * Opens Paystack hosted checkout.
- * - Web: same-tab navigation.
- * - Native: in-app browser + auto-close as soon as verify API confirms payment.
+ * - Web: same-tab navigation to Paystack (returns via HTTPS /payment/callback).
+ * - Native: in-app browser + verify polling; auto-closes when payment confirms.
  */
 export async function openPaystackCheckout(
   paymentUrl: string,
@@ -79,20 +86,42 @@ export async function openPaystackCheckout(
   }
 
   const paymentReference = options?.paymentReference?.trim() ?? '';
+  const redirectUrl = options?.redirectUrl?.trim() ?? '';
   const verifiedRef: { value: VerifyDonationApiResult | null } = { value: null };
 
   const stopPoll = paymentReference
     ? startPaymentConfirmationPoll(paymentReference, (result) => {
         verifiedRef.value = result;
+        options?.onStatusChange?.('confirmed');
       })
     : null;
 
   try {
+    options?.onStatusChange?.('opening');
     await WebBrowser.warmUpAsync();
-    await WebBrowser.openBrowserAsync(paymentUrl, {
-      presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
-      showInRecents: false,
-    });
+    const browserResult = redirectUrl
+      ? await WebBrowser.openAuthSessionAsync(paymentUrl, redirectUrl, {
+          presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
+          showInRecents: false,
+          enableBarCollapsing: false,
+        })
+      : await WebBrowser.openBrowserAsync(paymentUrl, {
+          presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
+          showInRecents: false,
+          enableBarCollapsing: false,
+        });
+
+    if (browserResult.type === 'success' && 'url' in browserResult) {
+      options?.onStatusChange?.('redirected');
+      const redirectedReference = referenceFromPaystackRedirectUrl(browserResult.url);
+      if (
+        paymentReference &&
+        redirectedReference &&
+        redirectedReference !== paymentReference
+      ) {
+        return { outcome: 'cancelled' };
+      }
+    }
   } finally {
     stopPoll?.();
     void WebBrowser.coolDownAsync();
@@ -106,12 +135,14 @@ export async function openPaystackCheckout(
   }
 
   if (paymentReference) {
-    const lastChance = await verifyDonationByReference(paymentReference);
-    if (lastChance.success) {
+    options?.onStatusChange?.('confirming');
+    const confirmed = await waitForDonationVerification(paymentReference);
+    if (confirmed) {
+      options?.onStatusChange?.('confirmed');
       if (!options?.skipNavigation) {
         navigateToPaymentCallback(paymentReference);
       }
-      return { outcome: 'completed', verifiedResult: lastChance };
+      return { outcome: 'completed', verifiedResult: confirmed };
     }
   }
 

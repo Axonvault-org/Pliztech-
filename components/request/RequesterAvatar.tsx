@@ -1,7 +1,8 @@
 import { Image } from 'expo-image';
 import { useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
+import { ProfilePictureViewerModal } from '@/components/profile/ProfilePictureViewerModal';
 import { Text } from '@/components/Text';
 
 export type RequesterAvatarProps = {
@@ -11,6 +12,9 @@ export type RequesterAvatarProps = {
   avatarUrl?: string | null;
   /** When true, show neutral "?" avatar (anonymous requester). */
   maskAvatar?: boolean;
+  /** Tap the circle to open full-screen photo preview (default on when a photo is shown). */
+  previewPhoto?: boolean;
+  previewLabel?: string;
 };
 
 /** React Native Image does not reliably render remote SVG (e.g. DiceBear svg). */
@@ -28,9 +32,12 @@ export function RequesterAvatar({
   avatarColor,
   avatarUrl,
   maskAvatar = false,
+  previewPhoto = true,
+  previewLabel,
 }: RequesterAvatarProps) {
   const radius = size / 2;
   const [imageFailed, setImageFailed] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   useEffect(() => {
     setImageFailed(false);
@@ -38,8 +45,9 @@ export function RequesterAvatar({
 
   const canShowImage =
     !maskAvatar && isRasterAvatarUrl(avatarUrl) && !imageFailed;
+  const canPreview = previewPhoto && canShowImage;
 
-  return (
+  const avatarBody = (
     <View
       style={[
         styles.avatar,
@@ -65,6 +73,32 @@ export function RequesterAvatar({
       )}
     </View>
   );
+
+  return (
+    <>
+      {canPreview ? (
+        <Pressable
+          onPress={() => setPreviewOpen(true)}
+          accessibilityRole="button"
+          accessibilityLabel={
+            previewLabel ? `View ${previewLabel}'s profile photo` : 'View profile photo'
+          }
+          style={({ pressed }) => [pressed && styles.avatarPressed]}
+        >
+          {avatarBody}
+        </Pressable>
+      ) : (
+        avatarBody
+      )}
+
+      <ProfilePictureViewerModal
+        visible={previewOpen}
+        imageUrl={canPreview ? avatarUrl ?? null : null}
+        title={previewLabel}
+        onClose={() => setPreviewOpen(false)}
+      />
+    </>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -72,6 +106,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
+  },
+  avatarPressed: {
+    opacity: 0.88,
   },
   avatarText: {
     fontWeight: '700',

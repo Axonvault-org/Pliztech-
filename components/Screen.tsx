@@ -89,6 +89,7 @@ export function Screen({
             style={styles.scroll}
             contentContainerStyle={[
               contentContainerStyle,
+              styles.scrollContent,
               contentStyle,
               centerVertical && styles.scrollCenter,
             ]}
@@ -112,6 +113,10 @@ const styles = StyleSheet.create({
   },
   scroll: {
     flex: 1,
+  },
+  scrollContent: {
+    width: '100%',
+    alignSelf: 'stretch',
   },
   scrollCenter: {
     flexGrow: 1,

@@ -5,7 +5,7 @@ import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { DonationThankYouModal } from '@/components/donation/DonationThankYouModal';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
-import { verifyDonationByReference, type VerifyDonationApiResult } from '@/lib/api/donations';
+import { verifyDonationByReference, waitForDonationVerification, type VerifyDonationApiResult } from '@/lib/api/donations';
 import { consumePendingDonationThankYouIfBegMatches } from '@/lib/donation/pending-thank-you';
 import {
   clearPendingPaystackCheckout,
@@ -103,8 +103,17 @@ export default function PaymentCallbackScreen() {
     setPhase('loading');
     setMessage('Confirming your payment…');
 
-    const result = await verifyDonationByReference(reference);
-    await applyVerifyResult(result);
+    const result = await waitForDonationVerification(reference, {
+      maxAttempts: 12,
+      intervalMs: 1000,
+    });
+    if (result) {
+      await applyVerifyResult(result);
+      return;
+    }
+
+    const lastTry = await verifyDonationByReference(reference);
+    await applyVerifyResult(lastTry);
   }, [reference, applyVerifyResult]);
 
   useEffect(() => {
@@ -148,8 +157,21 @@ export default function PaymentCallbackScreen() {
         return;
       }
 
+      if (checkoutResult.outcome === 'cancelled') {
+        const retried = await waitForDonationVerification(reference, {
+          maxAttempts: 6,
+          intervalMs: 1000,
+        });
+        if (retried) {
+          await applyVerifyResult(retried);
+          return;
+        }
+      }
+
       setPhase('error');
-      setMessage('Payment was not completed. You can try again from the request page.');
+      setMessage(
+        'We could not confirm this payment yet. If Paystack showed success, wait a moment and open the request again — or contact support with your reference.'
+      );
     })();
 
     return () => {

@@ -13,11 +13,16 @@ import { z } from 'zod';
 import { CTAButton } from '@/components/CTAButton';
 import { FormTextInput } from '@/components/FormTextInput';
 import { Screen } from '@/components/Screen';
+import { formContentStyle } from '@/constants/layout';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
 import { login as loginRequest } from '@/lib/api/auth';
 import { PlizApiError } from '@/lib/api/types';
 import { setTokens } from '@/lib/auth/access-token';
 import { resetSessionRecoveryState } from '@/lib/auth/session-expired';
+import {
+  enterAuthenticatedApp,
+  enterSignupProfile,
+} from '@/lib/navigation/auth-navigation';
 
 const LOGO = require('@/assets/images/pliz-logo.png');
 
@@ -76,9 +81,9 @@ export default function LoginScreen() {
       await refreshUser();
 
       if (!result.user.isProfileComplete) {
-        router.replace('/(auth)/signup-profile' as import('expo-router').Href);
+        enterSignupProfile();
       } else {
-        router.replace('/(tabs)' as import('expo-router').Href);
+        enterAuthenticatedApp('/(tabs)' as import('expo-router').Href);
       }
     } catch (e) {
       if (e instanceof PlizApiError) {
@@ -244,11 +249,9 @@ export default function LoginScreen() {
 
 const styles = StyleSheet.create({
   content: {
-    alignItems: 'center',
+    ...formContentStyle,
+    alignItems: 'stretch',
     paddingBottom: 32,
-    maxWidth: 400,
-    width: '100%',
-    alignSelf: 'center',
   },
   logoSection: {
     alignItems: 'center',

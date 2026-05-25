@@ -21,6 +21,7 @@ import { z } from 'zod';
 import { CTAButton } from '@/components/CTAButton';
 import { FormTextInput } from '@/components/FormTextInput';
 import { Screen } from '@/components/Screen';
+import { formContentStyle } from '@/constants/layout';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
 import { NIGERIAN_STATES } from '@/constants/nigerian-states';
 import { completeProfile } from '@/lib/api/profile';
@@ -30,6 +31,7 @@ import {
   getAccessTokenOrTryRefresh,
   withUnauthorizedRecovery,
 } from '@/lib/auth/session-expired';
+import { enterAuthenticatedApp } from '@/lib/navigation/auth-navigation';
 
 const LOGO = require('@/assets/images/pliz-logo.png');
 
@@ -233,7 +235,7 @@ export default function SignupProfileScreen() {
         })
       );
       await refreshUser();
-      router.replace('/(tabs)' as import('expo-router').Href);
+      enterAuthenticatedApp('/(tabs)' as import('expo-router').Href);
     } catch (e) {
       if (e instanceof PlizApiError) {
         applyApiFieldErrors(e);
@@ -660,11 +662,9 @@ export default function SignupProfileScreen() {
 
 const styles = StyleSheet.create({
   content: {
-    alignItems: 'center',
+    ...formContentStyle,
+    alignItems: 'stretch',
     paddingBottom: 32,
-    maxWidth: 400,
-    width: '100%',
-    alignSelf: 'center',
   },
   headerRow: {
     flexDirection: 'row',

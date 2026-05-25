@@ -24,6 +24,21 @@ function formatDisplay(value: string | undefined | null, fallback = 'Not set') {
   return t ? t : fallback;
 }
 
+function formatLocation(profile: {
+  city?: string | null;
+  state?: string | null;
+  address?: string | null;
+} | null | undefined): string {
+  const parts = [profile?.address, profile?.city, profile?.state]
+    .map((value) => value?.trim())
+    .filter(Boolean);
+  return parts.length > 0 ? parts.join(', ') : 'Not set';
+}
+
+function isPhoneVerified(user: ReturnType<typeof useCurrentUser>['user']): boolean {
+  return Boolean(user?.verification?.phoneVerified);
+}
+
 function InfoRow({
   icon,
   label,
@@ -103,7 +118,9 @@ export default function PersonalInfoScreen() {
   const fullName = displayFullName(user);
   const email = user.email ?? 'Not set';
   const phone = formatDisplay(user.profile?.phoneNumber);
+  const location = formatLocation(user.profile);
   const emailVerified = user.isEmailVerified === true;
+  const phoneVerified = isPhoneVerified(user);
 
   return (
     <Screen backgroundColor="#FFFFFF">
@@ -119,11 +136,17 @@ export default function PersonalInfoScreen() {
           verified={emailVerified}
           isLast={false}
         />
-        <InfoRow icon="call-outline" label="Phone" value={phone} isLast={false} />
+        <InfoRow
+          icon="call-outline"
+          label="Phone"
+          value={phone}
+          verified={phoneVerified}
+          isLast={false}
+        />
         <InfoRow
           icon="location-outline"
           label="Location"
-          value="Not set"
+          value={location}
           isLast
         />
       </View>

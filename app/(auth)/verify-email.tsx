@@ -13,6 +13,10 @@ import { verifyEmailWithToken } from '@/lib/api/auth';
 import { PlizApiError } from '@/lib/api/types';
 import { setTokens } from '@/lib/auth/access-token';
 import { resetSessionRecoveryState } from '@/lib/auth/session-expired';
+import {
+  enterAuthenticatedApp,
+  enterSignupProfile,
+} from '@/lib/navigation/auth-navigation';
 
 const LOGO = require('@/assets/images/pliz-logo.png');
 
@@ -61,9 +65,9 @@ export default function VerifyEmailScreen() {
         resetSessionRecoveryState();
         await refreshUser();
         if (!result.user.isProfileComplete) {
-          router.replace('/(auth)/signup-profile' as import('expo-router').Href);
+          enterSignupProfile();
         } else {
-          router.replace('/(tabs)' as import('expo-router').Href);
+          enterAuthenticatedApp('/(tabs)' as import('expo-router').Href);
         }
       } catch (e) {
         if (cancelled) return;

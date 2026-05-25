@@ -61,9 +61,17 @@
       "reactCompiler": true
     },
     "extra": {
+      "router": {},
       "eas": {
-        "projectId": "REPLACE_WITH_EAS_PROJECT_ID"
+        "projectId": "39df8bd9-92cd-4f9e-b10e-e7f4d483d074"
       }
+    },
+    "owner": "axonvaults-organization",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/39df8bd9-92cd-4f9e-b10e-e7f4d483d074"
     }
   }
 }

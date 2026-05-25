@@ -150,6 +150,7 @@ export function MemberProfileModal({ visible, userId, onClose }: MemberProfileMo
                 given={Math.round(profile.stats.totalDonated)}
                 helped={profile.stats.peopleHelped}
                 requests={profile.stats.requestsCount}
+                previewPhoto
               />
               {location ? (
                 <View style={styles.locationCard}>

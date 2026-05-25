@@ -93,7 +93,7 @@ export function CTAButton({
 const styles = StyleSheet.create({
   button: {
     width: '100%',
-    maxWidth: CTA_GRADIENT.width,
+    alignSelf: 'stretch',
     height: CTA_GRADIENT.height,
     borderRadius: CTA_GRADIENT.borderRadius,
     overflow: 'hidden',

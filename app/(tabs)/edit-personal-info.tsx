@@ -8,9 +8,10 @@ import { Text } from '@/components/Text';
 import { AppHeaderTitleRow } from '@/components/layout/AppHeaderTitleRow';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { Screen } from '@/components/Screen';
+import { NIGERIAN_STATES } from '@/constants/nigerian-states';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
 import { updateProfile } from '@/lib/api/profile';
-import { formatPlizApiErrorForUser } from '@/lib/api/types';
+import { formatPlizApiErrorForUser, type UpdateProfileBody } from '@/lib/api/types';
 import { withUnauthorizedRecovery } from '@/lib/auth/session-expired';
 
 const BORDER_GRAY = '#E5E7EB';
@@ -68,6 +69,9 @@ export default function EditPersonalInfoScreen() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
+  const [stateValue, setStateValue] = useState('');
+  const [city, setCity] = useState('');
+  const [address, setAddress] = useState('');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -75,12 +79,18 @@ export default function EditPersonalInfoScreen() {
     setFirstName(user.profile.firstName?.trim() ?? '');
     setLastName(user.profile.lastName?.trim() ?? '');
     setPhoneNumber(user.profile.phoneNumber?.trim() ?? '');
+    setStateValue(user.profile.state?.trim() ?? '');
+    setCity(user.profile.city?.trim() ?? '');
+    setAddress(user.profile.address?.trim() ?? '');
   }, [user?.profile]);
 
   const handleSave = useCallback(async () => {
     const fn = firstName.trim();
     const ln = lastName.trim();
     const phone = phoneNumber.trim();
+    const profileState = stateValue.trim();
+    const profileCity = city.trim();
+    const profileAddress = address.trim();
 
     if (fn.length < 2) {
       Alert.alert('Check first name', 'First name must be at least 2 characters.');
@@ -97,12 +107,23 @@ export default function EditPersonalInfoScreen() {
       );
       return;
     }
+    if (!(NIGERIAN_STATES as readonly string[]).includes(profileState)) {
+      Alert.alert('Check state', 'Select a valid Nigerian state.');
+      return;
+    }
+    if (profileCity.length < 2) {
+      Alert.alert('Check city', 'City must be at least 2 characters.');
+      return;
+    }
 
     setSaving(true);
     try {
-      const body: { firstName: string; lastName: string; phoneNumber?: string } = {
+      const body: UpdateProfileBody = {
         firstName: fn,
         lastName: ln,
+        state: profileState,
+        city: profileCity,
+        address: profileAddress || null,
       };
       const normalizedPhone = phone.replace(/\s/g, '');
       if (normalizedPhone) {
@@ -117,7 +138,7 @@ export default function EditPersonalInfoScreen() {
     } finally {
       setSaving(false);
     }
-  }, [firstName, lastName, phoneNumber, refreshUser, signOut]);
+  }, [address, city, firstName, lastName, phoneNumber, refreshUser, signOut, stateValue]);
 
   if (isLoading && !user) {
     return (
@@ -173,6 +194,30 @@ export default function EditPersonalInfoScreen() {
         onChangeText={setPhoneNumber}
         placeholder="+2348012345678"
         keyboardType="phone-pad"
+      />
+      <EditField
+        icon="map-outline"
+        label="State"
+        value={stateValue}
+        onChangeText={setStateValue}
+        placeholder="Lagos"
+        autoCapitalize="words"
+      />
+      <EditField
+        icon="location-outline"
+        label="City"
+        value={city}
+        onChangeText={setCity}
+        placeholder="Ikeja"
+        autoCapitalize="words"
+      />
+      <EditField
+        icon="home-outline"
+        label="Address"
+        value={address}
+        onChangeText={setAddress}
+        placeholder="Street address (optional)"
+        autoCapitalize="words"
       />
 
       <PrimaryButton
