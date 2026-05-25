@@ -12,6 +12,8 @@ export interface ProfileRowProps {
   showToggle?: boolean;
   toggleValue?: boolean;
   onToggleChange?: (value: boolean) => void;
+  badge?: string;
+  disabled?: boolean;
   isLast?: boolean;
 }
 
@@ -24,6 +26,8 @@ export function ProfileRow({
   showToggle = false,
   toggleValue = false,
   onToggleChange,
+  badge,
+  disabled = false,
   isLast = false,
 }: ProfileRowProps) {
   const content = (
@@ -32,13 +36,21 @@ export function ProfileRow({
         <Ionicons name={icon} size={22} color="#9CA3AF" />
       </View>
       <View style={styles.textWrap}>
-        <Text style={styles.title}>{title}</Text>
+        <View style={styles.titleLine}>
+          <Text style={styles.title}>{title}</Text>
+          {badge ? (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{badge}</Text>
+            </View>
+          ) : null}
+        </View>
         {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
       </View>
       {showToggle ? (
         <Switch
           value={toggleValue}
           onValueChange={onToggleChange}
+          disabled={disabled}
           trackColor={{ false: '#E5E7EB', true: '#93C5FD' }}
           thumbColor="#FFFFFF"
         />
@@ -50,7 +62,7 @@ export function ProfileRow({
 
   const rowStyle = [styles.row, isLast && styles.rowLast];
 
-  if (onPress && !showToggle) {
+  if (onPress && !showToggle && !disabled) {
     return (
       <Pressable onPress={onPress} style={({ pressed }) => [...rowStyle, pressed && styles.pressed]}>
         {content}
@@ -86,10 +98,27 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
+  titleLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
   title: {
     fontSize: 16,
     fontWeight: '600',
     color: '#1F2937',
+  },
+  badge: {
+    borderRadius: 999,
+    backgroundColor: '#EEF6FF',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  badgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#2E8BEA',
   },
   subtitle: {
     fontSize: 13,

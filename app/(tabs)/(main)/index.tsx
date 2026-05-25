@@ -220,6 +220,7 @@ export default function HomeScreen() {
           avatarUrl={avatarUrl}
           initials={header.initials}
           maskAvatar={header.maskAvatar}
+          previewPhoto
         />
         <ImpactCard
           totalGiven={totalGiven}

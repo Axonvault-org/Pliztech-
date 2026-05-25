@@ -1,6 +1,8 @@
-import { router, type Href } from 'expo-router';
+import type { Href } from 'expo-router';
 
 import { PlizApiError } from '@/lib/api/types';
+
+import { enterLogin } from '@/lib/navigation/auth-navigation';
 
 import { getAccessToken } from './access-token';
 import { resetRefreshCooldown, tryRefreshAccessToken } from './refresh-session';
@@ -26,7 +28,7 @@ export async function logoutAndGoToLogin(signOut: () => Promise<void>): Promise<
   logoutAndGoToLoginPromise = (async () => {
     try {
       await signOut();
-      router.replace(LOGIN_SESSION_EXPIRED);
+      enterLogin(LOGIN_SESSION_EXPIRED);
     } finally {
       logoutAndGoToLoginPromise = null;
     }

@@ -180,6 +180,9 @@ export type UpdateProfileBody = {
   lastName?: string;
   phoneNumber?: string;
   displayName?: string | null;
+  state?: string;
+  city?: string;
+  address?: string | null;
   isAnonymous?: boolean;
 };
 
@@ -189,6 +192,9 @@ export type UpdatedProfilePayload = {
   lastName: string;
   phoneNumber: string;
   displayName: string | null;
+  state?: string;
+  city?: string;
+  address?: string | null;
   isAnonymous: boolean;
 };
 

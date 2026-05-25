@@ -1,7 +1,10 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
-import { StyleSheet, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Pressable, StyleSheet, View } from 'react-native';
 
+import { ProfilePictureViewerModal } from '@/components/profile/ProfilePictureViewerModal';
+import { isRasterAvatarUrl } from '@/components/request/RequesterAvatar';
 import { Text } from '@/components/Text';
 
 import { HeaderNotificationButton } from '@/components/home/HeaderNotificationButton';
@@ -22,6 +25,8 @@ export interface HomeHeaderProps {
   avatarUrl?: string | null;
   initials?: string;
   maskAvatar?: boolean;
+  /** Tap avatar photo to open full-screen preview */
+  previewPhoto?: boolean;
 }
 
 export function HomeHeader({
@@ -33,26 +38,59 @@ export function HomeHeader({
   avatarUrl,
   initials,
   maskAvatar = false,
+  previewPhoto = true,
 }: HomeHeaderProps) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [avatarUrl]);
+
   const avatarLabel =
     maskAvatar ? '?' : initials?.trim() || firstName.charAt(0).toUpperCase() || '?';
   const isBeginnerBadge = role === 'Beginner';
+  const canShowImage =
+    !maskAvatar && isRasterAvatarUrl(avatarUrl) && !imageFailed;
+  const canPreview = previewPhoto && canShowImage;
+  const displayName = firstName.trim() || 'You';
+
+  const avatarBody = (
+    <View
+      style={[
+        styles.avatar,
+        { backgroundColor: maskAvatar ? '#9CA3AF' : avatarColor },
+      ]}
+    >
+      {canShowImage ? (
+        <Image
+          source={{ uri: avatarUrl!.trim() }}
+          style={styles.avatarImage}
+          contentFit="cover"
+          onError={() => setImageFailed(true)}
+        />
+      ) : (
+        <Text style={styles.avatarText}>{avatarLabel}</Text>
+      )}
+    </View>
+  );
 
   return (
+    <>
     <View style={styles.row}>
       <View style={styles.left}>
-        <View
-          style={[
-            styles.avatar,
-            { backgroundColor: maskAvatar ? '#9CA3AF' : avatarColor },
-          ]}
-        >
-          {!maskAvatar && avatarUrl ? (
-            <Image source={{ uri: avatarUrl }} style={styles.avatarImage} contentFit="cover" />
-          ) : (
-            <Text style={styles.avatarText}>{avatarLabel}</Text>
-          )}
-        </View>
+        {canPreview ? (
+          <Pressable
+            onPress={() => setPreviewOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel="View your profile photo"
+            style={({ pressed }) => [pressed && styles.avatarPressed]}
+          >
+            {avatarBody}
+          </Pressable>
+        ) : (
+          avatarBody
+        )}
         <Text style={styles.greeting}>
           Hi, <Text style={styles.name}>{firstName}</Text>
         </Text>
@@ -77,6 +115,14 @@ export function HomeHeader({
         unreadCount={unreadNotificationCount}
       />
     </View>
+
+    <ProfilePictureViewerModal
+      visible={previewOpen}
+      imageUrl={canPreview ? avatarUrl ?? null : null}
+      title={displayName}
+      onClose={() => setPreviewOpen(false)}
+    />
+    </>
   );
 }
 
@@ -106,6 +152,9 @@ const styles = StyleSheet.create({
   avatarImage: {
     width: '100%',
     height: '100%',
+  },
+  avatarPressed: {
+    opacity: 0.88,
   },
   avatarText: {
     fontSize: 18,

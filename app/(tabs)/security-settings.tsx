@@ -1,12 +1,16 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, StyleSheet, Switch, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Switch, View } from 'react-native';
 
 import { Text } from '@/components/Text';
 
 import { AppHeaderTitleRow } from '@/components/layout/AppHeaderTitleRow';
 import { Screen } from '@/components/Screen';
+import { logoutOtherSessions } from '@/lib/api/sessions';
+import { formatPlizApiErrorForUser } from '@/lib/api/types';
+import { withUnauthorizedRecovery } from '@/lib/auth/session-expired';
+import { useCurrentUser } from '@/contexts/CurrentUserContext';
 
 const ACCENT_BLUE = '#2E8BEA';
 const SECURITY_GREEN = '#22C55E';
@@ -56,6 +60,7 @@ function SecurityRow({
   toggleValue,
   onToggleChange,
   badge,
+  disabled,
   iconBgColor,
   isLast,
 }: {
@@ -67,6 +72,7 @@ function SecurityRow({
   toggleValue?: boolean;
   onToggleChange?: (value: boolean) => void;
   badge?: string;
+  disabled?: boolean;
   iconBgColor?: string;
   isLast?: boolean;
 }) {
@@ -76,15 +82,29 @@ function SecurityRow({
         <Ionicons name={icon} size={20} color="#FFFFFF" />
       </View>
       <View style={styles.rowText}>
-        <Text style={styles.rowTitle}>{title}</Text>
+        <View style={styles.rowTitleLine}>
+          <Text style={styles.rowTitle}>{title}</Text>
+          {badge ? (
+            <View style={badge === 'Current' ? styles.currentBadge : styles.comingSoonBadge}>
+              <Text
+                style={
+                  badge === 'Current'
+                    ? styles.currentBadgeText
+                    : styles.comingSoonBadgeText
+                }
+              >
+                {badge}
+              </Text>
+            </View>
+          ) : null}
+        </View>
         {subtitle ? <Text style={styles.rowSubtitle}>{subtitle}</Text> : null}
       </View>
-      {badge ? (
-        <Text style={styles.currentBadge}>{badge}</Text>
-      ) : showToggle ? (
+      {showToggle ? (
         <Switch
           value={toggleValue}
           onValueChange={onToggleChange}
+          disabled={disabled}
           trackColor={{ false: '#E5E7EB', true: ACCENT_BLUE }}
           thumbColor="#FFFFFF"
         />
@@ -96,7 +116,7 @@ function SecurityRow({
 
   const rowStyle = [styles.row, isLast && styles.rowLast];
 
-  if (onPress && !showToggle && !badge) {
+  if (onPress && !showToggle && !disabled) {
     return (
       <Pressable
         onPress={onPress}
@@ -131,19 +151,48 @@ function SecurityTipsBanner() {
 }
 
 export default function SecuritySettingsScreen() {
-  const [twoFactor, setTwoFactor] = useState(false);
-  const [biometric, setBiometric] = useState(true);
+  const { signOut } = useCurrentUser();
+  const [loggingOutOthers, setLoggingOutOthers] = useState(false);
 
   const handleChangePassword = () => {
     router.push('/(tabs)/change-password');
   };
 
-  const handleTransactionPin = () => {
-    // TODO: Navigate to transaction PIN
-  };
-
   const handleLogoutOthers = () => {
-    // TODO: Log out other devices
+    if (loggingOutOthers) return;
+    Alert.alert(
+      'Log out other devices?',
+      'This keeps you signed in here and ends active sessions on your other devices.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Log out',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              setLoggingOutOthers(true);
+              try {
+                const result = await withUnauthorizedRecovery(signOut, (token) =>
+                  logoutOtherSessions(token)
+                );
+                Alert.alert(
+                  'Other devices logged out',
+                  result.sessionsLoggedOut > 0
+                    ? `${result.sessionsLoggedOut} session${
+                        result.sessionsLoggedOut === 1 ? '' : 's'
+                      } ended.`
+                    : 'No other active sessions were found.'
+                );
+              } catch (e) {
+                Alert.alert('Could not log out devices', formatPlizApiErrorForUser(e));
+              } finally {
+                setLoggingOutOthers(false);
+              }
+            })();
+          },
+        },
+      ]
+    );
   };
 
   return (
@@ -164,18 +213,22 @@ export default function SecuritySettingsScreen() {
           icon="phone-portrait"
           title="Two-Factor Authentication"
           subtitle="Add extra security to your account"
+          badge="Coming soon"
           showToggle
-          toggleValue={twoFactor}
-          onToggleChange={setTwoFactor}
+          toggleValue={false}
+          onToggleChange={undefined}
+          disabled
           isLast={false}
         />
         <SecurityRow
           icon="finger-print"
           title="Biometric Login"
           subtitle="Use fingerprint or face ID"
+          badge="Coming soon"
           showToggle
-          toggleValue={biometric}
-          onToggleChange={setBiometric}
+          toggleValue={false}
+          onToggleChange={undefined}
+          disabled
           isLast
         />
       </SecuritySection>
@@ -185,7 +238,8 @@ export default function SecuritySettingsScreen() {
           icon="key"
           title="Transaction PIN"
           subtitle="4-digit PIN for donations"
-          onPress={handleTransactionPin}
+          badge="Coming soon"
+          disabled
           isLast
         />
       </SecuritySection>
@@ -200,10 +254,22 @@ export default function SecuritySettingsScreen() {
           isLast={false}
         />
         <Pressable
-          style={({ pressed }) => [styles.logoutLink, pressed && styles.pressed]}
+          style={({ pressed }) => [
+            styles.logoutLink,
+            pressed && !loggingOutOthers && styles.pressed,
+            loggingOutOthers && styles.logoutLinkDisabled,
+          ]}
           onPress={handleLogoutOthers}
+          disabled={loggingOutOthers}
+          accessibilityRole="button"
+          accessibilityLabel="Log out of all other devices"
         >
-          <Text style={styles.logoutLinkText}>Log out of all other devices</Text>
+          <View style={styles.logoutLinkRow}>
+            <Text style={styles.logoutLinkText}>
+              {loggingOutOthers ? 'Logging out other devices...' : 'Log out of all other devices'}
+            </Text>
+            <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
+          </View>
         </Pressable>
       </SecuritySection>
 
@@ -305,6 +371,12 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
+  rowTitleLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
   rowTitle: {
     fontSize: 16,
     fontWeight: '600',
@@ -316,14 +388,41 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   currentBadge: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: SECURITY_GREEN,
+    borderRadius: 999,
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  currentBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#15803D',
+  },
+  comingSoonBadge: {
+    borderRadius: 999,
+    backgroundColor: '#EEF6FF',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  comingSoonBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: ACCENT_BLUE,
   },
   logoutLink: {
     paddingVertical: 14,
   },
+  logoutLinkDisabled: {
+    opacity: 0.88,
+  },
+  logoutLinkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
   logoutLinkText: {
+    flex: 1,
     fontSize: 15,
     fontWeight: '600',
     color: '#DC2626',

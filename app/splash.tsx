@@ -14,6 +14,7 @@ import Animated, {
 
 import { Screen } from '@/components/Screen';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
+import { enterAuthenticatedApp } from '@/lib/navigation/auth-navigation';
 
 // -----------------------------------------------------------------------------
 // Constants (no magic numbers)
@@ -66,7 +67,7 @@ export default function SplashScreen() {
     if (user) {
       if (!hasNavigated.current) {
         hasNavigated.current = true;
-        router.replace('/(tabs)/(main)' as import('expo-router').Href);
+        enterAuthenticatedApp();
       }
       return;
     }

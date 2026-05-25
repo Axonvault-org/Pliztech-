@@ -1,16 +1,10 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Switch, View } from 'react-native';
 
 import { Text } from '@/components/Text';
 
 import { AppHeaderTitleRow } from '@/components/layout/AppHeaderTitleRow';
 import { Screen } from '@/components/Screen';
-import {
-  loadAccountSettings,
-  saveAccountSettings,
-  type AccountSettingsState,
-} from '@/lib/preferences/account-settings-storage';
 
 const ACCENT_BLUE = '#2E8BEA';
 const BORDER_GRAY = '#E5E7EB';
@@ -43,6 +37,8 @@ function SettingsRow({
   onToggleChange,
   destructive,
   isLast,
+  badge,
+  disabled,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
@@ -53,6 +49,8 @@ function SettingsRow({
   onToggleChange?: (value: boolean) => void;
   destructive?: boolean;
   isLast?: boolean;
+  badge?: string;
+  disabled?: boolean;
 }) {
   const iconBg = destructive ? DESTRUCTIVE_RED : ICON_BG;
   const titleColor = destructive ? DESTRUCTIVE_RED : '#1F2937';
@@ -63,13 +61,21 @@ function SettingsRow({
         <Ionicons name={icon} size={20} color="#FFFFFF" />
       </View>
       <View style={styles.rowText}>
-        <Text style={[styles.rowTitle, { color: titleColor }]}>{title}</Text>
+        <View style={styles.rowTitleLine}>
+          <Text style={[styles.rowTitle, { color: titleColor }]}>{title}</Text>
+          {badge ? (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{badge}</Text>
+            </View>
+          ) : null}
+        </View>
         {subtitle ? <Text style={styles.rowSubtitle}>{subtitle}</Text> : null}
       </View>
       {showToggle ? (
         <Switch
           value={toggleValue}
           onValueChange={onToggleChange}
+          disabled={disabled}
           trackColor={{ false: '#E5E7EB', true: ACCENT_BLUE }}
           thumbColor="#FFFFFF"
         />
@@ -81,7 +87,7 @@ function SettingsRow({
 
   const rowStyle = [styles.row, isLast && styles.rowLast];
 
-  if (onPress && !showToggle) {
+  if (onPress && !showToggle && !disabled) {
     return (
       <Pressable
         onPress={onPress}
@@ -96,21 +102,6 @@ function SettingsRow({
 }
 
 export default function AccountSettingsScreen() {
-  const [prefs, setPrefs] = useState<AccountSettingsState | null>(null);
-
-  useEffect(() => {
-    void loadAccountSettings().then(setPrefs);
-  }, []);
-
-  const persist = useCallback(async (next: AccountSettingsState) => {
-    setPrefs(next);
-    await saveAccountSettings(next);
-  }, []);
-
-  const darkMode = prefs?.darkMode ?? false;
-  const emailNotifications = prefs?.emailNotifications ?? true;
-  const smsNotifications = prefs?.smsNotifications ?? false;
-
   const handleLanguage = () => {
     Alert.alert(
       'Language',
@@ -141,15 +132,19 @@ export default function AccountSettingsScreen() {
         <SettingsRow
           icon="globe-outline"
           title="Language"
+          badge="Coming soon"
           onPress={handleLanguage}
           isLast={false}
         />
         <SettingsRow
           icon="moon-outline"
           title="Dark Mode"
+          subtitle="A full app theme is coming soon"
+          badge="Coming soon"
           showToggle
-          toggleValue={darkMode}
-          onToggleChange={(v) => void persist({ darkMode: v, emailNotifications, smsNotifications })}
+          toggleValue={false}
+          onToggleChange={undefined}
+          disabled
           isLast
         />
       </SettingsSection>
@@ -159,18 +154,22 @@ export default function AccountSettingsScreen() {
           icon="mail-outline"
           title="Email Notifications"
           subtitle="Receive updates via email"
+          badge="Coming soon"
           showToggle
-          toggleValue={emailNotifications}
-          onToggleChange={(v) => void persist({ darkMode, emailNotifications: v, smsNotifications })}
+          toggleValue={false}
+          onToggleChange={undefined}
+          disabled
           isLast={false}
         />
         <SettingsRow
           icon="call-outline"
           title="SMS Notifications"
           subtitle="Get text message alerts"
+          badge="Coming soon"
           showToggle
-          toggleValue={smsNotifications}
-          onToggleChange={(v) => void persist({ darkMode, emailNotifications, smsNotifications: v })}
+          toggleValue={false}
+          onToggleChange={undefined}
+          disabled
           isLast
         />
       </SettingsSection>
@@ -180,6 +179,7 @@ export default function AccountSettingsScreen() {
           icon="download-outline"
           title="Export My Data"
           subtitle="Download a copy of your data"
+          badge="Coming soon"
           onPress={handleExportData}
           isLast={false}
         />
@@ -187,6 +187,7 @@ export default function AccountSettingsScreen() {
           icon="trash-outline"
           title="Delete Account"
           subtitle="Permanently delete your account"
+          badge="Coming soon"
           onPress={handleDeleteAccount}
           destructive
           isLast
@@ -246,9 +247,26 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
+  rowTitleLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
   rowTitle: {
     fontSize: 16,
     fontWeight: '600',
+  },
+  badge: {
+    borderRadius: 999,
+    backgroundColor: '#EEF6FF',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  badgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: ACCENT_BLUE,
   },
   rowSubtitle: {
     fontSize: 13,

@@ -12,6 +12,7 @@ import { z } from 'zod';
 import { CTAButton } from '@/components/CTAButton';
 import { FormTextInput } from '@/components/FormTextInput';
 import { Screen } from '@/components/Screen';
+import { formContentStyle } from '@/constants/layout';
 import { requestForgotPassword } from '@/lib/api/auth';
 import { PlizApiError } from '@/lib/api/types';
 
@@ -166,11 +167,9 @@ export default function ForgotPasswordScreen() {
 
 const styles = StyleSheet.create({
   content: {
-    alignItems: 'center',
+    ...formContentStyle,
+    alignItems: 'stretch',
     paddingBottom: 32,
-    maxWidth: 400,
-    width: '100%',
-    alignSelf: 'center',
   },
   topBar: {
     alignSelf: 'stretch',

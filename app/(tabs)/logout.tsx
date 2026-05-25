@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { enterSignedOutWelcome } from '@/lib/navigation/auth-navigation';
 import { useEffect } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
@@ -18,7 +18,7 @@ export default function LogoutScreen() {
     (async () => {
       await signOut();
       if (!cancelled) {
-        router.replace('/(public)/welcome' as import('expo-router').Href);
+        enterSignedOutWelcome();
       }
     })();
 

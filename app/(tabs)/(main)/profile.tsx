@@ -33,7 +33,6 @@ export default function ProfileScreen() {
   const [anonToggling, setAnonToggling] = useState(false);
   const lastRefreshRef = useRef<number>(0);
 
-  const [pushNotifications, setPushNotifications] = useState(true);
   const [anonymousMode, setAnonymousMode] = useState(false);
   const [profilePicture, setProfilePicture] = useState<ProfilePicture | null>(null);
 
@@ -107,6 +106,7 @@ export default function ProfileScreen() {
           helped={peopleHelped}
           requests={requestsCount}
           isLoading={showCardLoading}
+          previewPhoto
         />
 
         {user && !isDocumentVerified(user) ? (
@@ -145,10 +145,13 @@ export default function ProfileScreen() {
           <ProfileRow
             icon="notifications-outline"
             title="Push Notifications"
+            subtitle="Alerts for donations, approvals, and replies"
+            badge="Coming soon"
             showArrow={false}
             showToggle
-            toggleValue={pushNotifications}
-            onToggleChange={setPushNotifications}
+            toggleValue={false}
+            onToggleChange={undefined}
+            disabled
           />
           <ProfileRow
             icon="sync-outline"

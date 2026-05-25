@@ -22,9 +22,8 @@ export interface RequestCardProps {
 }
 
 /**
- * Uses Link asChild + TouchableOpacity for reliable iOS navigation.
- * TouchableOpacity works better than Pressable inside ScrollView on iOS.
- * Link asChild delegates navigation to expo-router's native linking.
+ * Avatar sits outside the navigation Link so tapping it opens photo preview only.
+ * Card body uses Link asChild + TouchableOpacity for reliable iOS navigation.
  */
 export function RequestCard({ request }: RequestCardProps) {
   const {
@@ -41,35 +40,45 @@ export function RequestCard({ request }: RequestCardProps) {
     percent,
   } = request;
 
+  const href = { pathname: '/(tabs)/request/[id]' as const, params: { id } };
+  const isAnonymous = name.toLowerCase() === 'anonymous';
+
   return (
     <View style={styles.cardWrapper}>
-      <Link
-        href={{ pathname: '/(tabs)/request/[id]', params: { id } }}
-        asChild
-        push
-      >
-        <TouchableOpacity
-          activeOpacity={0.7}
-          style={styles.card}
-          accessibilityRole="button"
-          accessibilityLabel={`Request by ${name}: ${text.slice(0, 50)}...`}
-        >
-          <View style={styles.topRow}>
-            <RequesterAvatar
-              size={40}
-              initial={initial}
-              avatarColor={avatarColor}
-              avatarUrl={avatarUrl}
-              maskAvatar={name.toLowerCase() === 'anonymous'}
-            />
+      <View style={styles.topRow}>
+        <RequesterAvatar
+          size={40}
+          initial={initial}
+          avatarColor={avatarColor}
+          avatarUrl={avatarUrl}
+          maskAvatar={isAnonymous}
+          previewPhoto
+          previewLabel={name}
+        />
+        <Link href={href} asChild push>
+          <TouchableOpacity
+            activeOpacity={0.7}
+            style={styles.topRowLink}
+            accessibilityRole="button"
+            accessibilityLabel={`Request by ${name}`}
+          >
             <Text style={styles.name} numberOfLines={1}>
               {name}
             </Text>
             <Text style={styles.timeAgo}>
               {expiresInLabel ? `${timeAgo} · ${expiresInLabel}` : timeAgo}
             </Text>
-          </View>
+          </TouchableOpacity>
+        </Link>
+      </View>
 
+      <Link href={href} asChild push>
+        <TouchableOpacity
+          activeOpacity={0.7}
+          style={styles.cardBody}
+          accessibilityRole="button"
+          accessibilityLabel={`Request by ${name}: ${text.slice(0, 50)}...`}
+        >
           <Text style={styles.text} numberOfLines={3}>
             {text}
           </Text>
@@ -103,14 +112,20 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
-  card: {
-    padding: 0,
-  },
   topRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 10,
     gap: 12,
+  },
+  topRowLink: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  cardBody: {
+    padding: 0,
   },
   name: {
     flex: 1,

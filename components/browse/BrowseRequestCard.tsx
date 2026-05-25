@@ -47,69 +47,79 @@ export function BrowseRequestCard({ request, onPress }: BrowseRequestCardProps) 
   } = request;
 
   const categoryIcon = getCategoryIcon(categoryId);
+  const href = { pathname: '/(tabs)/request/[id]' as const, params: { id } };
+  const isAnonymous = name.toLowerCase() === 'anonymous';
 
   return (
-    <Link
-      href={{ pathname: '/(tabs)/request/[id]', params: { id } }}
-      asChild
-      push
-    >
-      <TouchableOpacity
-        activeOpacity={0.7}
-        style={styles.card}
-        accessibilityRole="button"
-        accessibilityLabel={`Request by ${name}: ${text.slice(0, 50)}...`}
-        onPress={onPress}
-      >
+    <View style={styles.card}>
       <View style={styles.topRow}>
-        <View style={styles.left}>
-          <RequesterAvatar
-            size={40}
-            initial={initial}
-            avatarColor={avatarColor}
-            avatarUrl={avatarUrl}
-            maskAvatar={name.toLowerCase() === 'anonymous'}
-          />
-          <View style={styles.nameWrap}>
-            <View style={styles.nameRow}>
-              <Text style={styles.name} numberOfLines={1}>
-                {name}
-              </Text>
-              {badge && (
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>{badge}</Text>
-                </View>
-              )}
+        <RequesterAvatar
+          size={40}
+          initial={initial}
+          avatarColor={avatarColor}
+          avatarUrl={avatarUrl}
+          maskAvatar={isAnonymous}
+          previewPhoto
+          previewLabel={name}
+        />
+        <Link href={href} asChild push>
+          <TouchableOpacity
+            activeOpacity={0.7}
+            style={styles.topRowLink}
+            accessibilityRole="button"
+            accessibilityLabel={`Request by ${name}`}
+            onPress={onPress}
+          >
+            <View style={styles.nameWrap}>
+              <View style={styles.nameRow}>
+                <Text style={styles.name} numberOfLines={1}>
+                  {name}
+                </Text>
+                {badge ? (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{badge}</Text>
+                  </View>
+                ) : null}
+              </View>
             </View>
+            <View style={styles.timeLeft}>
+              <Ionicons name="time-outline" size={14} color={BODY} />
+              <Text style={styles.timeLeftText}>{timeLeft}</Text>
+            </View>
+          </TouchableOpacity>
+        </Link>
+      </View>
+
+      <Link href={href} asChild push>
+        <TouchableOpacity
+          activeOpacity={0.7}
+          style={styles.cardBody}
+          accessibilityRole="button"
+          accessibilityLabel={`Request by ${name}: ${text.slice(0, 50)}...`}
+          onPress={onPress}
+        >
+          <View style={styles.categoryRow}>
+            <Ionicons name={categoryIcon as keyof typeof Ionicons.glyphMap} size={16} color={BODY} />
+            <Text style={styles.categoryLabel}>{categoryLabel}</Text>
           </View>
-        </View>
-        <View style={styles.timeLeft}>
-          <Ionicons name="time-outline" size={14} color={BODY} />
-          <Text style={styles.timeLeftText}>{timeLeft}</Text>
-        </View>
-      </View>
 
-      <View style={styles.categoryRow}>
-        <Ionicons name={categoryIcon as keyof typeof Ionicons.glyphMap} size={16} color={BODY} />
-        <Text style={styles.categoryLabel}>{categoryLabel}</Text>
-      </View>
+          <Text style={styles.text} numberOfLines={3}>
+            {text}
+          </Text>
 
-      <Text style={styles.text} numberOfLines={3}>
-        {text}
-      </Text>
+          <View style={styles.amountRow}>
+            <Text style={styles.amount}>
+              <Text style={styles.amountRaised}>{formatNaira(raised)}</Text>
+              {' / '}
+              {formatNaira(goal)}
+            </Text>
+            <Text style={styles.percent}>{percent}%</Text>
+          </View>
 
-      <View style={styles.amountRow}>
-        <Text style={styles.amount}>
-          <Text style={styles.amountRaised}>{formatNaira(raised)}</Text>
-          {' / '}
-          {formatNaira(goal)}
-        </Text>
-        <Text style={styles.percent}>{percent}%</Text>
-      </View>
-
-      <ProgressBar percent={percent} trackColor="#EEEEEE" fillColor="#2196F3" />
-    </TouchableOpacity>
-    </Link>
+          <ProgressBar percent={percent} trackColor="#EEEEEE" fillColor="#2196F3" />
+        </TouchableOpacity>
+      </Link>
+    </View>
   );
 }
 
@@ -130,17 +140,22 @@ const styles = StyleSheet.create({
   topRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     marginBottom: 10,
+    gap: 12,
   },
-  left: {
+  topRowLink: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    flex: 1,
+    justifyContent: 'space-between',
     gap: 12,
+  },
+  cardBody: {
+    padding: 0,
   },
   nameWrap: {
     flex: 1,
+    minWidth: 0,
   },
   nameRow: {
     flexDirection: 'row',
@@ -151,6 +166,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: HEADING,
+    flexShrink: 1,
   },
   badge: {
     backgroundColor: '#F3F4F6',
@@ -170,6 +186,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 8,
     gap: 4,
+    flexShrink: 0,
   },
   timeLeftText: {
     fontSize: 12,

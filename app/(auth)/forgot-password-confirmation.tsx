@@ -6,6 +6,7 @@ import { Text } from '@/components/Text';
 
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { Screen } from '@/components/Screen';
+import { formContentStyle } from '@/constants/layout';
 
 const COLORS = {
   background: '#FFFFFF',
@@ -84,11 +85,9 @@ export default function ForgotPasswordConfirmationScreen() {
 
 const styles = StyleSheet.create({
   content: {
-    alignItems: 'center',
+    ...formContentStyle,
+    alignItems: 'stretch',
     paddingBottom: 32,
-    maxWidth: 400,
-    width: '100%',
-    alignSelf: 'center',
   },
   headerRow: {
     flexDirection: 'row',

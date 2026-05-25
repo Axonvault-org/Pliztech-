@@ -5,6 +5,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, View } from 'react-native';
 
 import { AppHeaderTitleRow } from '@/components/layout/AppHeaderTitleRow';
+import { ProfilePictureViewerModal } from '@/components/profile/ProfilePictureViewerModal';
+import { isRasterAvatarUrl } from '@/components/request/RequesterAvatar';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
@@ -36,6 +38,10 @@ export default function ProfilePictureScreen() {
   const [options, setOptions] = useState<ProfilePictureOptions | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+
+  const canPreviewPhoto =
+    Boolean(picture?.displayUrl && isRasterAvatarUrl(picture.displayUrl));
 
   const load = useCallback(async () => {
     const token = await getAccessToken();
@@ -148,17 +154,44 @@ export default function ProfilePictureScreen() {
       <View style={styles.content}>
         <View style={styles.hero}>
           <View style={styles.previewWrap}>
-            <View style={styles.previewRing}>
-              <View style={styles.previewImageWrap}>
-                {loading ? (
-                  <ActivityIndicator size="large" color="#355C7D" />
-                ) : picture?.displayUrl ? (
-                  <Image source={{ uri: picture.displayUrl }} style={styles.previewImage} contentFit="cover" />
-                ) : (
-                  <Ionicons name="person" size={48} color="#FFFFFF" />
-                )}
+            {canPreviewPhoto ? (
+              <Pressable
+                onPress={() => setPreviewOpen(true)}
+                accessibilityRole="button"
+                accessibilityLabel="View full profile photo"
+                style={({ pressed }) => [pressed && styles.previewPressed]}
+              >
+                <View style={styles.previewRing}>
+                  <View style={styles.previewImageWrap}>
+                    {loading ? (
+                      <ActivityIndicator size="large" color="#355C7D" />
+                    ) : (
+                      <Image
+                        source={{ uri: picture!.displayUrl }}
+                        style={styles.previewImage}
+                        contentFit="cover"
+                      />
+                    )}
+                  </View>
+                </View>
+              </Pressable>
+            ) : (
+              <View style={styles.previewRing}>
+                <View style={styles.previewImageWrap}>
+                  {loading ? (
+                    <ActivityIndicator size="large" color="#355C7D" />
+                  ) : picture?.displayUrl ? (
+                    <Image
+                      source={{ uri: picture.displayUrl }}
+                      style={styles.previewImage}
+                      contentFit="cover"
+                    />
+                  ) : (
+                    <Ionicons name="person" size={48} color="#FFFFFF" />
+                  )}
+                </View>
               </View>
-            </View>
+            )}
             <Pressable
               style={[styles.cameraFab, saving && styles.disabled]}
               onPress={() => void choosePhoto()}
@@ -252,6 +285,13 @@ export default function ProfilePictureScreen() {
           </View>
         </View>
       </View>
+
+      <ProfilePictureViewerModal
+        visible={previewOpen}
+        imageUrl={canPreviewPhoto ? picture?.displayUrl ?? null : null}
+        title="Your profile photo"
+        onClose={() => setPreviewOpen(false)}
+      />
     </Screen>
   );
 }
@@ -277,6 +317,9 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  previewPressed: {
+    opacity: 0.9,
   },
   previewRing: {
     width: 132,

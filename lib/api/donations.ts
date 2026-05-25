@@ -120,6 +120,33 @@ export async function verifyDonationByReference(
   };
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Paystack's success screen can appear before verify succeeds — retry for a short window.
+ */
+export async function waitForDonationVerification(
+  reference: string,
+  options?: { maxAttempts?: number; intervalMs?: number }
+): Promise<VerifyDonationApiResult | null> {
+  const maxAttempts = options?.maxAttempts ?? 18;
+  const intervalMs = options?.intervalMs ?? 1000;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const result = await verifyDonationByReference(reference);
+    if (result.success) {
+      return result;
+    }
+    if (attempt < maxAttempts - 1) {
+      await sleep(intervalMs);
+    }
+  }
+
+  return null;
+}
+
 /**
  * POST /api/donations/initialize — Paystack checkout URL or saved-card charge.
  */

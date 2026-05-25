@@ -1,7 +1,10 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 
+import { ProfilePictureViewerModal } from '@/components/profile/ProfilePictureViewerModal';
+import { isRasterAvatarUrl } from '@/components/request/RequesterAvatar';
 import { Text } from '@/components/Text';
 
 function formatNaira(amount: number) {
@@ -28,6 +31,8 @@ export type ProfileSummaryCardProps = {
   /** Number of help requests posted */
   requests?: number;
   isLoading?: boolean;
+  /** Tap avatar photo to open full-screen preview */
+  previewPhoto?: boolean;
 };
 
 export function ProfileSummaryCard({
@@ -44,24 +49,59 @@ export function ProfileSummaryCard({
   helped = 0,
   requests = 0,
   isLoading = false,
+  previewPhoto = true,
 }: ProfileSummaryCardProps) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [avatarUrl]);
+
+  const canShowImage =
+    !maskAvatar && isRasterAvatarUrl(avatarUrl) && !imageFailed;
+  const canPreview = previewPhoto && canShowImage;
+
+  const avatarBody = (
+    <View
+      style={[
+        styles.avatar,
+        { backgroundColor: maskAvatar ? '#9CA3AF' : avatarColor },
+      ]}
+    >
+      {canShowImage ? (
+        <Image
+          source={{ uri: avatarUrl!.trim() }}
+          style={styles.avatarImage}
+          contentFit="cover"
+          onError={() => setImageFailed(true)}
+        />
+      ) : isLoading && !fullName ? (
+        <ActivityIndicator color="#FFFFFF" />
+      ) : (
+        <Text style={styles.avatarText}>{maskAvatar ? '?' : initials}</Text>
+      )}
+    </View>
+  );
+
   return (
-    <View style={styles.card}>
+    <>
+      <View style={styles.card}>
       <View style={styles.topRow}>
-        <View
-          style={[
-            styles.avatar,
-            { backgroundColor: maskAvatar ? '#9CA3AF' : avatarColor },
-          ]}
-        >
-          {!maskAvatar && avatarUrl ? (
-            <Image source={{ uri: avatarUrl }} style={styles.avatarImage} contentFit="cover" />
-          ) : isLoading && !fullName ? (
-            <ActivityIndicator color="#FFFFFF" />
-          ) : (
-            <Text style={styles.avatarText}>{maskAvatar ? '?' : initials}</Text>
-          )}
-        </View>
+        {canPreview ? (
+          <Pressable
+            onPress={() => setPreviewOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel={
+              fullName ? `View ${fullName}'s profile photo` : 'View profile photo'
+            }
+            style={({ pressed }) => [pressed && styles.avatarPressed]}
+          >
+            {avatarBody}
+          </Pressable>
+        ) : (
+          avatarBody
+        )}
         <View style={styles.info}>
           <View style={styles.nameRow}>
             <Text style={styles.name} numberOfLines={2}>
@@ -105,7 +145,15 @@ export function ProfileSummaryCard({
           <Text style={styles.statLabel}>Requests</Text>
         </View>
       </View>
-    </View>
+      </View>
+
+      <ProfilePictureViewerModal
+        visible={previewOpen}
+        imageUrl={canPreview ? avatarUrl ?? null : null}
+        title={fullName}
+        onClose={() => setPreviewOpen(false)}
+      />
+    </>
   );
 }
 
@@ -139,6 +187,9 @@ const styles = StyleSheet.create({
   avatarImage: {
     width: '100%',
     height: '100%',
+  },
+  avatarPressed: {
+    opacity: 0.88,
   },
   avatarText: {
     fontSize: 24,

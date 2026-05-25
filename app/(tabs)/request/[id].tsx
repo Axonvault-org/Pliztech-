@@ -32,14 +32,16 @@ import {
 import { initializeDonation, getBegDonations, type BegDonationApiItem } from '@/lib/api/donations';
 import { getReactions, toggleReaction, type ReactionsPayload } from '@/lib/api/reactions';
 import { formatPlizApiErrorForUser } from '@/lib/api/types';
-import { getPaystackDonationCallbackUrl } from '@/lib/donation/paystack-callback-url';
-import { savePendingPaystackCheckout } from '@/lib/donation/pending-paystack-checkout';
-import { savePendingDonationThankYou } from '@/lib/donation/pending-thank-you';
+import { getPaystackDonationCallbackUrl, getPaystackWebCallbackUrl } from '@/lib/donation/paystack-callback-url';
+import {
+  consumePendingDonationThankYouIfBegMatches,
+  savePendingDonationThankYou,
+} from '@/lib/donation/pending-thank-you';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
 import { openPaystackCheckout } from '@/lib/utils/open-paystack-checkout';
 import { withUnauthorizedRecovery } from '@/lib/auth/session-expired';
 import { getAccessToken } from '@/lib/auth/access-token';
-import { formatAmountInput } from '@/lib/money/input-format';
+import { digitsOnly, formatAmountInput } from '@/lib/money/input-format';
 import type { RequestDetail } from '@/lib/types/requests';
 import { getPlatformFee, getRequestReceives, getVatOnPlatformFee } from '@/lib/types/requests';
 
@@ -87,7 +89,7 @@ function defaultDonationSelection(amountNeeded: number): {
     return { selected: fittingPreset, custom: '' };
   }
 
-  return { selected: null, custom: formatAmountInput(String(amountNeeded)) };
+  return { selected: null, custom: String(amountNeeded) };
 }
 
 /** Wide readable column on tablet / web; full width on phones. */
@@ -177,9 +179,11 @@ export default function RequestDetailScreen() {
   /** Set when request loads or user changes amount — avoids errors on first paint. */
   const [selectedAmount, setSelectedAmount] = useState<number | null>(null);
   const [customAmount, setCustomAmount] = useState('');
+  const [customAmountFocused, setCustomAmountFocused] = useState(false);
   const [amountTouched, setAmountTouched] = useState(false);
   const [showName, setShowName] = useState(true);
   const [donationSubmitting, setDonationSubmitting] = useState(false);
+  const [donationProgressMessage, setDonationProgressMessage] = useState('');
   const [donationThankYou, setDonationThankYou] = useState<{
     amount: number;
     recipientName: string;
@@ -196,18 +200,23 @@ export default function RequestDetailScreen() {
 
   const amountNeeded = request ? Math.max(0, request.goal - request.raised) : 0;
 
+  const requestId = request?.id;
+
   useEffect(() => {
-    if (!request) return;
+    if (!requestId) return;
     const { selected, custom } = defaultDonationSelection(amountNeeded);
     setSelectedAmount(selected);
     setCustomAmount(custom);
     setAmountTouched(false);
-  }, [request?.id, amountNeeded]);
+  }, [requestId, amountNeeded]);
 
   const parsedCustomAmount = useMemo(() => {
-    const parsed = parseInt(String(customAmount).replace(/\D/g, ''), 10);
+    const parsed = parseInt(digitsOnly(customAmount), 10);
     return Number.isFinite(parsed) ? parsed : 0;
   }, [customAmount]);
+  const customAmountDisplay = customAmountFocused
+    ? customAmount
+    : formatAmountInput(customAmount);
   const selectedDonationAmount = selectedAmount ?? parsedCustomAmount;
   const donationAmountError = useMemo(() => {
     if (selectedDonationAmount <= 0) return null;
@@ -244,9 +253,13 @@ export default function RequestDetailScreen() {
     }
 
     setDonationSubmitting(true);
+    setDonationProgressMessage('Opening secure Paystack checkout...');
     const effectiveShowName = anonymousModeEnabled ? false : showName;
     try {
-      const callbackUrl = getPaystackDonationCallbackUrl();
+      const callbackUrl =
+        Platform.OS === 'web'
+          ? getPaystackWebCallbackUrl()
+          : getPaystackDonationCallbackUrl();
       const result = await withUnauthorizedRecovery(signOut, (token) =>
         initializeDonation(token, {
           begId: id,
@@ -281,19 +294,61 @@ export default function RequestDetailScreen() {
           return;
         }
 
-        await savePendingPaystackCheckout({
-          reference: result.paymentReference,
-          paymentUrl: result.paymentUrl,
+        const checkoutResult = await openPaystackCheckout(result.paymentUrl, {
           redirectUrl: callbackUrl,
-        });
-
-        router.replace({
-          pathname: '/payment/callback',
-          params: {
-            reference: result.paymentReference,
-            checkout: '1',
+          paymentReference: result.paymentReference,
+          skipNavigation: true,
+          onStatusChange: (status) => {
+            if (status === 'opening') {
+              setDonationProgressMessage('Opening secure Paystack checkout...');
+            } else if (status === 'redirected') {
+              setDonationProgressMessage('Paystack returned you to Plz. Confirming payment...');
+            } else if (status === 'confirming') {
+              setDonationProgressMessage('Confirming payment with Paystack...');
+            } else if (status === 'confirmed') {
+              setDonationProgressMessage('Payment confirmed. Preparing your thank-you note...');
+            }
           },
         });
+
+        if (
+          checkoutResult.outcome === 'completed' &&
+          checkoutResult.verifiedResult?.success
+        ) {
+          const pending = await consumePendingDonationThankYouIfBegMatches(id);
+          if (pending) {
+            setDonationThankYou({
+              amount: pending.amount,
+              recipientName: pending.recipientName,
+              showRecipientName: pending.showRecipientName,
+              donationId: pending.donationId,
+            });
+          } else if (request) {
+            setDonationThankYou({
+              amount: rawAmount,
+              recipientName: request.name,
+              showRecipientName: effectiveShowName,
+              donationId: result.donationId,
+            });
+          }
+          void loadRequest();
+          void loadDonors();
+          return;
+        }
+
+        if (checkoutResult.outcome === 'cancelled') {
+          Alert.alert(
+            'Payment not confirmed yet',
+            'If you completed payment on Paystack, wait a moment and pull to refresh this request — your donation may still appear. Otherwise you can try again.',
+            [{ text: 'OK', onPress: () => void loadRequest() }]
+          );
+        } else {
+          Alert.alert(
+            'Payment pending',
+            'We could not confirm your payment yet. If you were charged, it may still process — check the request in a moment or contact support.',
+            [{ text: 'OK', onPress: () => void loadRequest() }]
+          );
+        }
         return;
       } else {
         if (request) {
@@ -316,6 +371,7 @@ export default function RequestDetailScreen() {
       Alert.alert('Could not start donation', formatPlizApiErrorForUser(e));
     } finally {
       setDonationSubmitting(false);
+      setDonationProgressMessage('');
     }
   }, [
     id,
@@ -326,6 +382,7 @@ export default function RequestDetailScreen() {
     anonymousModeEnabled,
     request,
     loadRequest,
+    loadDonors,
     signOut,
   ]);
 
@@ -496,53 +553,46 @@ export default function RequestDetailScreen() {
             }
           />
 
-          {canViewRequesterProfile || (isOwner && !isAnonymous) ? (
-            <Pressable
-              style={({ pressed }) => [
-                styles.requesterRow,
-                styles.requesterRowPressable,
-                pressed && styles.requesterRowPressed,
-              ]}
-              onPress={onViewRequesterProfile}
-              accessibilityRole="button"
-              accessibilityLabel={`View ${name}'s profile`}
-            >
-              <RequesterAvatar
-                size={48}
-                initial={initial}
-                avatarColor={avatarColor}
-                avatarUrl={avatarUrl}
-                maskAvatar={isAnonymous}
-              />
-              <View style={styles.requesterInfo}>
-                <View style={styles.nameRow}>
-                  <Text style={[styles.name, styles.nameLink]} numberOfLines={1}>
-                    {name}
-                  </Text>
-                  {badge ? (
-                    <View style={styles.badge}>
-                      <Text style={styles.badgeText}>{badge}</Text>
-                    </View>
-                  ) : null}
+          <View style={styles.requesterRow}>
+            <RequesterAvatar
+              size={48}
+              initial={initial}
+              avatarColor={avatarColor}
+              avatarUrl={avatarUrl}
+              maskAvatar={isAnonymous}
+              previewLabel={name}
+            />
+            {canViewRequesterProfile || (isOwner && !isAnonymous) ? (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.requesterTapArea,
+                  pressed && styles.requesterRowPressed,
+                ]}
+                onPress={onViewRequesterProfile}
+                accessibilityRole="button"
+                accessibilityLabel={`View ${name}'s profile`}
+              >
+                <View style={styles.requesterInfo}>
+                  <View style={styles.nameRow}>
+                    <Text style={[styles.name, styles.nameLink]} numberOfLines={1}>
+                      {name}
+                    </Text>
+                    {badge ? (
+                      <View style={styles.badge}>
+                        <Text style={styles.badgeText}>{badge}</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <View style={styles.metaRow}>
+                    <Ionicons name={categoryIcon} size={15} color="#6B7280" style={styles.metaIcon} />
+                    <Text style={styles.meta} numberOfLines={1}>
+                      {categoryLabel} · {timeAgo}
+                    </Text>
+                  </View>
                 </View>
-                <View style={styles.metaRow}>
-                  <Ionicons name={categoryIcon} size={15} color="#6B7280" style={styles.metaIcon} />
-                  <Text style={styles.meta} numberOfLines={1}>
-                    {categoryLabel} · {timeAgo}
-                  </Text>
-                </View>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
-            </Pressable>
-          ) : (
-            <View style={styles.requesterRow}>
-              <RequesterAvatar
-                size={48}
-                initial={initial}
-                avatarColor={avatarColor}
-                avatarUrl={avatarUrl}
-                maskAvatar={isAnonymous}
-              />
+                <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+              </Pressable>
+            ) : (
               <View style={styles.requesterInfo}>
                 <View style={styles.nameRow}>
                   <Text style={styles.name} numberOfLines={1}>
@@ -561,8 +611,8 @@ export default function RequestDetailScreen() {
                   </Text>
                 </View>
               </View>
-            </View>
-          )}
+            )}
+          </View>
 
           {isAwaitingApproval ? (
             <View style={styles.pendingApprovalBanner}>
@@ -739,14 +789,17 @@ export default function RequestDetailScreen() {
                 placeholder="Custom Amount"
                 placeholderTextColor="#9CA3AF"
                 keyboardType="number-pad"
-                value={customAmount}
+                value={customAmountDisplay}
                 onChangeText={(t) => {
                   setAmountTouched(true);
-                  const formatted = formatAmountInput(t);
-                  setCustomAmount(formatted);
-                  if (formatted) setSelectedAmount(null);
+                  setCustomAmount(digitsOnly(t));
+                  if (digitsOnly(t)) setSelectedAmount(null);
                 }}
-                onFocus={() => setSelectedAmount(null)}
+                onFocus={() => {
+                  setCustomAmountFocused(true);
+                  setSelectedAmount(null);
+                }}
+                onBlur={() => setCustomAmountFocused(false)}
               />
               {visibleDonationError ? (
                 <Text style={styles.amountError}>{visibleDonationError}</Text>
@@ -788,6 +841,9 @@ export default function RequestDetailScreen() {
                 onPress={() => void onContinueDonation()}
                 disabled={donationSubmitting || Boolean(donationAmountError)}
               />
+              {donationProgressMessage ? (
+                <Text style={styles.paymentProgressText}>{donationProgressMessage}</Text>
+              ) : null}
 
               <Text style={styles.ctaSubtext}>
                 Only {formatNaira(amountNeeded)} needed to complete this request
@@ -867,6 +923,14 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     paddingHorizontal: 2,
     marginHorizontal: -2,
+  },
+  requesterTapArea: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    minWidth: 0,
+    borderRadius: 12,
+    paddingVertical: 4,
   },
   requesterRowPressed: {
     opacity: 0.85,
@@ -1138,6 +1202,13 @@ const styles = StyleSheet.create({
     color: '#2E8BEA',
     textAlign: 'center',
     marginTop: 12,
+  },
+  paymentProgressText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#4B5563',
+    textAlign: 'center',
+    marginTop: 10,
   },
   pendingApprovalBanner: {
     flexDirection: 'row',
