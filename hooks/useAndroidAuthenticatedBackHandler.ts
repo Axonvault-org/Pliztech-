@@ -1,6 +1,8 @@
-import { useFocusEffect, useNavigation } from 'expo-router';
+import { useFocusEffect, useNavigation, usePathname } from 'expo-router';
 import { useCallback } from 'react';
 import { BackHandler, Platform } from 'react-native';
+
+const AUTHENTICATED_ROOT_PATHS = new Set(['/', '/browse', '/create', '/activity', '/profile']);
 
 /**
  * On Android, block the hardware back key from popping the root stack into
@@ -9,6 +11,7 @@ import { BackHandler, Platform } from 'react-native';
  */
 export function useAndroidAuthenticatedBackHandler(enabled: boolean): void {
   const navigation = useNavigation();
+  const pathname = usePathname();
 
   useFocusEffect(
     useCallback(() => {
@@ -17,6 +20,10 @@ export function useAndroidAuthenticatedBackHandler(enabled: boolean): void {
       }
 
       const onBackPress = () => {
+        if (!AUTHENTICATED_ROOT_PATHS.has(pathname)) {
+          return false;
+        }
+
         if (navigation.canGoBack()) {
           return false;
         }
@@ -25,6 +32,6 @@ export function useAndroidAuthenticatedBackHandler(enabled: boolean): void {
 
       const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
       return () => subscription.remove();
-    }, [enabled, navigation])
+    }, [enabled, navigation, pathname])
   );
 }

@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { router } from 'expo-router';
-import { useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Switch, View } from 'react-native';
 
 import { Text } from '@/components/Text';
@@ -8,7 +8,9 @@ import { Text } from '@/components/Text';
 import { AppHeaderTitleRow } from '@/components/layout/AppHeaderTitleRow';
 import { Screen } from '@/components/Screen';
 import { logoutOtherSessions } from '@/lib/api/sessions';
+import { getTransactionPinStatus } from '@/lib/api/transaction-pin';
 import { formatPlizApiErrorForUser } from '@/lib/api/types';
+import { getAccessToken } from '@/lib/auth/access-token';
 import { withUnauthorizedRecovery } from '@/lib/auth/session-expired';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
 
@@ -85,10 +87,16 @@ function SecurityRow({
         <View style={styles.rowTitleLine}>
           <Text style={styles.rowTitle}>{title}</Text>
           {badge ? (
-            <View style={badge === 'Current' ? styles.currentBadge : styles.comingSoonBadge}>
+            <View
+              style={
+                badge === 'Current' || badge === 'Enabled'
+                  ? styles.currentBadge
+                  : styles.comingSoonBadge
+              }
+            >
               <Text
                 style={
-                  badge === 'Current'
+                  badge === 'Current' || badge === 'Enabled'
                     ? styles.currentBadgeText
                     : styles.comingSoonBadgeText
                 }
@@ -153,6 +161,22 @@ function SecurityTipsBanner() {
 export default function SecuritySettingsScreen() {
   const { signOut } = useCurrentUser();
   const [loggingOutOthers, setLoggingOutOthers] = useState(false);
+  const [hasTransactionPin, setHasTransactionPin] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      void (async () => {
+        const token = await getAccessToken();
+        if (!token) return;
+        try {
+          const status = await getTransactionPinStatus(token);
+          setHasTransactionPin(status.hasPin);
+        } catch {
+          setHasTransactionPin(false);
+        }
+      })();
+    }, [])
+  );
 
   const handleChangePassword = () => {
     router.push('/(tabs)/change-password');
@@ -237,9 +261,13 @@ export default function SecuritySettingsScreen() {
         <SecurityRow
           icon="key"
           title="Transaction PIN"
-          subtitle="4-digit PIN for donations"
-          badge="Coming soon"
-          disabled
+          subtitle={
+            hasTransactionPin
+              ? 'Change your transaction PIN'
+              : 'Set a 4-digit PIN for payments and withdrawals'
+          }
+          badge={hasTransactionPin ? 'Enabled' : undefined}
+          onPress={() => router.push('/transaction-pin' as never)}
           isLast
         />
       </SecuritySection>

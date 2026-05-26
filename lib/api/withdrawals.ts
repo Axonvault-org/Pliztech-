@@ -83,6 +83,7 @@ export async function getUserWithdrawals(
 export type RequestWithdrawalBody = {
   begId: string;
   bankAccountId?: string;
+  transactionPin: string;
 };
 
 /**
@@ -106,6 +107,7 @@ export async function requestWithdrawal(
     },
     body: JSON.stringify({
       begId: body.begId,
+      transactionPin: body.transactionPin,
       ...(body.bankAccountId ? { bankAccountId: body.bankAccountId } : {}),
     }),
   });

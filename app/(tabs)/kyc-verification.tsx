@@ -30,7 +30,7 @@ import {
   type KycVerificationType,
   type KycStatusPayload,
 } from '@/lib/api/kyc';
-import { PlizApiError } from '@/lib/api/types';
+import { formatPlizApiErrorForUser } from '@/lib/api/types';
 import { getAccessToken } from '@/lib/auth/access-token';
 import { kycImageToBase64 } from '@/lib/kyc/helpers';
 import { submitAndWaitForKycResult } from '@/lib/kyc/submit-flow';
@@ -93,6 +93,7 @@ export default function KycVerificationScreen() {
   const [otpBusy, setOtpBusy] = useState(false);
   const [kycBusy, setKycBusy] = useState(false);
   const [resendSec, setResendSec] = useState(0);
+  const [otpRequested, setOtpRequested] = useState(false);
 
   useEffect(() => {
     if (resendSec <= 0) return;
@@ -121,7 +122,7 @@ export default function KycVerificationScreen() {
             return;
           }
         }
-        const msg = e instanceof PlizApiError ? e.message : 'Could not load verification status.';
+        const msg = formatPlizApiErrorForUser(e) || 'Could not load verification status.';
         Alert.alert('Error', msg);
         setStatus(null);
       } finally {
@@ -200,7 +201,7 @@ export default function KycVerificationScreen() {
         await resetKycAfterRejection(token);
         await loadStatus();
       } catch (e) {
-        const msg = e instanceof PlizApiError ? e.message : 'Could not restart verification.';
+        const msg = formatPlizApiErrorForUser(e) || 'Could not restart verification.';
         Alert.alert('Could not restart', msg);
       } finally {
         setKycBusy(false);
@@ -237,11 +238,12 @@ export default function KycVerificationScreen() {
     setOtpBusy(true);
     try {
       await sendKycPhoneOtp(token);
+      setOtpRequested(true);
       setResendSec(RESEND_COOLDOWN_SEC);
       Alert.alert('Code sent', 'Enter the 6-digit code we sent to your phone.');
       await loadStatus();
     } catch (e) {
-      const msg = e instanceof PlizApiError ? e.message : 'Could not send code.';
+      const msg = formatPlizApiErrorForUser(e) || 'Could not send code.';
       Alert.alert('Could not send', msg);
     } finally {
       setOtpBusy(false);
@@ -255,10 +257,11 @@ export default function KycVerificationScreen() {
     setOtpBusy(true);
     try {
       await resendKycPhoneOtp(token);
+      setOtpRequested(true);
       setResendSec(RESEND_COOLDOWN_SEC);
       Alert.alert('Code sent', 'A new code is on its way.');
     } catch (e) {
-      const msg = e instanceof PlizApiError ? e.message : 'Could not resend.';
+      const msg = formatPlizApiErrorForUser(e) || 'Could not resend.';
       Alert.alert('Could not resend', msg);
     } finally {
       setOtpBusy(false);
@@ -277,11 +280,12 @@ export default function KycVerificationScreen() {
     try {
       await verifyKycPhoneOtp(token, code);
       setOtp('');
+      setOtpRequested(false);
       await loadStatus();
       await refreshUser();
       Alert.alert('Phone verified', 'You can now verify your identity with NIN or international passport.');
     } catch (e) {
-      const msg = e instanceof PlizApiError ? e.message : 'Verification failed.';
+      const msg = formatPlizApiErrorForUser(e) || 'Verification failed.';
       Alert.alert('Could not verify', msg);
     } finally {
       setOtpBusy(false);
@@ -307,7 +311,7 @@ export default function KycVerificationScreen() {
           : 'You can now submit your verification for review.'
       );
     } catch (e) {
-      const msg = e instanceof PlizApiError ? e.message : 'Face liveness failed.';
+      const msg = formatPlizApiErrorForUser(e) || 'Face liveness failed.';
       Alert.alert('Could not verify selfie', msg);
     } finally {
       setKycBusy(false);
@@ -328,7 +332,7 @@ export default function KycVerificationScreen() {
         return;
       }
     } catch (e) {
-      const msg = e instanceof PlizApiError ? e.message : 'Submission failed.';
+      const msg = formatPlizApiErrorForUser(e) || 'Submission failed.';
       Alert.alert('Could not submit', msg);
     } finally {
       setKycBusy(false);
@@ -423,13 +427,15 @@ export default function KycVerificationScreen() {
                     disabled={otpBusy || otp.length !== 6}
                     accessibilityLabel="Verify code"
                   />
-                  <CTAButton
-                    label={resendSec > 0 ? `Resend code (${resendSec}s)` : 'Resend code'}
-                    onPress={() => void onResendOtp()}
-                    variant="transparent"
-                    disabled={otpBusy || resendSec > 0}
-                    accessibilityLabel="Resend code"
-                  />
+                  {otpRequested ? (
+                    <CTAButton
+                      label={resendSec > 0 ? `Resend code (${resendSec}s)` : 'Resend code'}
+                      onPress={() => void onResendOtp()}
+                      variant="transparent"
+                      disabled={otpBusy || resendSec > 0}
+                      accessibilityLabel="Resend code"
+                    />
+                  ) : null}
                 </View>
               </View>
             ) : null}

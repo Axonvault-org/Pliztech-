@@ -49,7 +49,8 @@ import {
   isBegWithdrawable,
 } from '@/lib/beg/withdrawable';
 import { getBegDonations } from '@/lib/api/donations';
-import { PlizApiError } from '@/lib/api/types';
+import { getTransactionPinStatus } from '@/lib/api/transaction-pin';
+import { formatPlizApiErrorForUser, PlizApiError } from '@/lib/api/types';
 import type { WithdrawalApiItem } from '@/lib/api/withdrawals';
 import { getUserWithdrawals, requestWithdrawal } from '@/lib/api/withdrawals';
 import { calculateWithdrawalFeesDisplay } from '@/lib/withdrawal-fees';
@@ -57,6 +58,7 @@ import { getAccessToken } from '@/lib/auth/access-token';
 import {
   isUnauthorizedSessionError,
   recoverFromUnauthorized,
+  withUnauthorizedRecovery,
 } from '@/lib/auth/session-expired';
 
 const BLUE_BAR = '#2E8BEA';
@@ -249,6 +251,8 @@ export default function WithdrawFundsScreen() {
   const [step3LoadError, setStep3LoadError] = useState<string | null>(null);
   const [confirmSubmitting, setConfirmSubmitting] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
+  const [pinModalOpen, setPinModalOpen] = useState(false);
+  const [transactionPin, setTransactionPin] = useState('');
 
   const load = useCallback(
     async (opts?: { background?: boolean; _retry?: boolean }) => {
@@ -367,16 +371,13 @@ export default function WithdrawFundsScreen() {
       setConfirmError(null);
       setStep3Summary(null);
       try {
-        const token = await getAccessToken();
-        if (!token) {
-          setStep3LoadError('Sign in again to continue.');
-          return;
-        }
-        const [accounts, begsRes, wdRes] = await Promise.all([
-          getWithdrawalBankAccounts(token),
-          getMyBegs(token, { page: 1, limit: 100 }),
-          getUserWithdrawals(token, { page: 1, limit: 100 }),
-        ]);
+        const [accounts, begsRes, wdRes] = await withUnauthorizedRecovery(signOut, (token) =>
+          Promise.all([
+            getWithdrawalBankAccounts(token),
+            getMyBegs(token, { page: 1, limit: 100 }),
+            getUserWithdrawals(token, { page: 1, limit: 100 }),
+          ])
+        );
         const acc = accounts.find((a) => a.id === paramBankAccountId);
         const beg = begsRes.begs.find((b) => b.id === paramBegId);
         if (!acc) {
@@ -437,11 +438,7 @@ export default function WithdrawFundsScreen() {
           }
         }
         setStep3LoadError(
-          e instanceof PlizApiError
-            ? e.message
-            : e instanceof Error
-              ? e.message
-              : 'Could not load confirmation details'
+          formatPlizApiErrorForUser(e) || 'Could not load confirmation details'
         );
       } finally {
         setStep3Loading(false);
@@ -533,17 +530,12 @@ export default function WithdrawFundsScreen() {
       setResolveError(null);
       setResolvedAccountName(null);
       try {
-        const token = await getAccessToken();
-        if (cancelled) return;
-        if (!token) {
-          setResolveLoading(false);
-          setResolveError('Sign in to verify your account.');
-          return;
-        }
-        const r = await resolveWithdrawalBankAccount(token, {
-          accountNumber: accountDigits,
-          bankCode: selectedBank.code,
-        });
+        const r = await withUnauthorizedRecovery(signOut, (token) =>
+          resolveWithdrawalBankAccount(token, {
+            accountNumber: accountDigits,
+            bankCode: selectedBank.code,
+          })
+        );
         if (cancelled) return;
         setResolvedAccountName(r.accountName.trim());
       } catch (e) {
@@ -564,7 +556,7 @@ export default function WithdrawFundsScreen() {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [step, selectedBank, accountDigits]);
+  }, [step, selectedBank, accountDigits, signOut]);
 
   const step2CanContinue =
     selectedBank !== null &&
@@ -616,20 +608,20 @@ export default function WithdrawFundsScreen() {
     }
   };
 
-  const handleConfirmWithdrawal = async () => {
+  const submitWithdrawalWithPin = async (pin: string) => {
     if (!paramBankAccountId || !paramBegId || !step3Summary) return;
     setConfirmError(null);
     setConfirmSubmitting(true);
     try {
-      const token = await getAccessToken();
-      if (!token) {
-        setConfirmError('Sign in again to continue.');
-        return;
-      }
-      const result = await requestWithdrawal(token, {
-        begId: paramBegId,
-        bankAccountId: paramBankAccountId,
-      });
+      const result = await withUnauthorizedRecovery(signOut, (token) =>
+        requestWithdrawal(token, {
+          begId: paramBegId,
+          bankAccountId: paramBankAccountId,
+          transactionPin: pin,
+        })
+      );
+      setPinModalOpen(false);
+      setTransactionPin('');
       Alert.alert('Withdrawal', result.message, [
         {
           text: 'Share a story',
@@ -647,15 +639,38 @@ export default function WithdrawFundsScreen() {
         },
       ]);
     } catch (e) {
-      setConfirmError(
-        e instanceof PlizApiError
-          ? e.message
-          : e instanceof Error
-            ? e.message
-            : 'Could not submit withdrawal'
-      );
+      setConfirmError(formatPlizApiErrorForUser(e) || 'Could not submit withdrawal');
     } finally {
       setConfirmSubmitting(false);
+    }
+  };
+
+  const handleConfirmWithdrawal = async () => {
+    if (!paramBankAccountId || !paramBegId || !step3Summary || confirmSubmitting) return;
+    setConfirmError(null);
+    try {
+      const pinStatus = await withUnauthorizedRecovery(signOut, (token) =>
+        getTransactionPinStatus(token)
+      );
+      if (!pinStatus.hasPin) {
+        Alert.alert(
+          'Set Transaction PIN',
+          'Create a 4-digit Transaction PIN before withdrawing funds.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Set PIN', onPress: () => router.push('/transaction-pin' as never) },
+          ]
+        );
+        return;
+      }
+      if (pinStatus.locked) {
+        setConfirmError('Your Transaction PIN is temporarily locked. Please try again later.');
+        return;
+      }
+      setTransactionPin('');
+      setPinModalOpen(true);
+    } catch (e) {
+      setConfirmError(formatPlizApiErrorForUser(e) || 'Could not check Transaction PIN.');
     }
   };
 
@@ -932,6 +947,72 @@ export default function WithdrawFundsScreen() {
         ) : null}
         </View>
       </Screen>
+
+      <Modal
+        visible={pinModalOpen}
+        animationType="fade"
+        transparent
+        onRequestClose={() => {
+          if (!confirmSubmitting) setPinModalOpen(false);
+        }}
+      >
+        <View style={styles.pinOverlay}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            style={styles.pinKeyboardAvoid}
+          >
+            <View style={styles.pinCard}>
+              <View style={styles.pinIconWrap}>
+                <Ionicons name="key" size={22} color="#2E8BEA" />
+              </View>
+              <Text style={styles.pinTitle}>Enter Transaction PIN</Text>
+              <Text style={styles.pinSubtitle}>
+                Confirm this withdrawal with your 4-digit PIN.
+              </Text>
+              <TextInput
+                style={styles.pinInput}
+                value={transactionPin}
+                onChangeText={(value) =>
+                  setTransactionPin(value.replace(/\D/g, '').slice(0, 4))
+                }
+                placeholder="••••"
+                placeholderTextColor="#9CA3AF"
+                keyboardType="number-pad"
+                secureTextEntry
+                maxLength={4}
+                autoFocus
+                editable={!confirmSubmitting}
+              />
+              <View style={styles.pinActions}>
+                <Pressable
+                  style={[styles.pinAction, styles.pinCancelAction]}
+                  onPress={() => {
+                    setPinModalOpen(false);
+                    setTransactionPin('');
+                  }}
+                  disabled={confirmSubmitting}
+                >
+                  <Text style={styles.pinCancelText}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  style={[
+                    styles.pinAction,
+                    styles.pinConfirmAction,
+                    (transactionPin.length !== 4 || confirmSubmitting) &&
+                      styles.pinConfirmActionDisabled,
+                  ]}
+                  onPress={() => void submitWithdrawalWithPin(transactionPin)}
+                  disabled={transactionPin.length !== 4 || confirmSubmitting}
+                >
+                  <Text style={styles.pinConfirmText}>
+                    {confirmSubmitting ? 'Submitting…' : 'Confirm'}
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
 
       <Modal
         visible={bankPickerOpen}
@@ -1212,6 +1293,89 @@ const styles = StyleSheet.create({
     color: '#B91C1C',
     marginBottom: 8,
     lineHeight: 20,
+  },
+  pinOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  pinKeyboardAvoid: {
+    width: '100%',
+  },
+  pinCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 20,
+    alignItems: 'center',
+  },
+  pinIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#DBEAFE',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  pinTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  pinSubtitle: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginBottom: 18,
+  },
+  pinInput: {
+    width: '100%',
+    minHeight: 54,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    textAlign: 'center',
+    fontSize: 22,
+    letterSpacing: 8,
+    color: '#111827',
+    backgroundColor: '#F9FAFB',
+    marginBottom: 18,
+  },
+  pinActions: {
+    flexDirection: 'row',
+    width: '100%',
+    gap: 12,
+  },
+  pinAction: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pinCancelAction: {
+    backgroundColor: '#F3F4F6',
+  },
+  pinConfirmAction: {
+    backgroundColor: '#2E8BEA',
+  },
+  pinConfirmActionDisabled: {
+    backgroundColor: '#BFDBFE',
+  },
+  pinCancelText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#374151',
+  },
+  pinConfirmText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
   secondaryBtn: {
     marginTop: 16,
