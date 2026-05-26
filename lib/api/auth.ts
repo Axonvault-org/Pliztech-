@@ -97,7 +97,8 @@ export async function verifyEmailWithToken(
 }
 
 /**
- * POST /api/auth/forgot-password — always succeeds with generic message if email is valid format (server may not reveal whether email exists).
+ * POST /api/auth/forgot-password — returns success when the reset email is sent.
+ * Unknown emails still get a generic success response (no email sent) to avoid account enumeration.
  */
 export async function requestForgotPassword(email: string): Promise<string> {
   const res = await fetch(apiUrl('/api/auth/forgot-password'), {

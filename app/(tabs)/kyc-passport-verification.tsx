@@ -19,7 +19,7 @@ import { Text } from '@/components/Text';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
 import { useKycImagePicker } from '@/hooks/useKycImagePicker';
 import { uploadKycDocument, verifyKycFaceLiveness } from '@/lib/api/kyc';
-import { PlizApiError } from '@/lib/api/types';
+import { formatPlizApiErrorForUser } from '@/lib/api/types';
 import { withUnauthorizedRecovery } from '@/lib/auth/session-expired';
 import {
   isFutureOrTodayIsoDate,
@@ -157,7 +157,7 @@ export default function KycPassportVerificationScreen() {
 
       setRejectionReason(outcome.reason);
     } catch (e) {
-      const msg = e instanceof PlizApiError ? e.message : 'Verification failed.';
+      const msg = formatPlizApiErrorForUser(e) || 'Verification failed.';
       Alert.alert('Could not verify', msg);
     } finally {
       setSubmitting(false);

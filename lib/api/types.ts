@@ -76,12 +76,64 @@ function formatPlizApiMessageBody(message: string, errors: ApiErrorItem[]): stri
   return lines.join('\n\n').trim() || 'Request failed';
 }
 
+function userSafeApiMessage(message: string, status?: number): string {
+  const trimmed = message.trim();
+  const normalized = trimmed.toLowerCase();
+
+  if (!trimmed) return 'Something went wrong. Please try again.';
+
+  if (
+    normalized.includes('low balance') ||
+    normalized.includes('fund your wallet') ||
+    normalized.includes('sendchamp') ||
+    normalized.includes('prembly') ||
+    normalized.includes('supabase') ||
+    normalized.includes('row-level security') ||
+    normalized.includes('violates row-level') ||
+    normalized.includes('api key') ||
+    normalized.includes('secret') ||
+    normalized.includes('provider') ||
+    normalized.includes('database') ||
+    normalized.includes('prisma') ||
+    normalized.includes('cannot read properties') ||
+    normalized.includes('undefined') ||
+    normalized.includes('null') ||
+    normalized.includes('stack') ||
+    normalized.includes('internal server') ||
+    normalized.includes('failed to send otp')
+  ) {
+    return 'We could not complete this request right now. Please try again later.';
+  }
+
+  if (typeof status === 'number' && status >= 500) {
+    return 'We could not complete this request right now. Please try again later.';
+  }
+
+  return trimmed;
+}
+
+function formatSafePlizApiMessageBody(
+  message: string,
+  errors: ApiErrorItem[],
+  status?: number
+): string {
+  const safeMessage = userSafeApiMessage(message, status);
+  const safeErrors = errors
+    .map((item) => ({
+      ...item,
+      message: userSafeApiMessage(item.message, status),
+    }))
+    .filter((item) => item.message);
+
+  return formatPlizApiMessageBody(safeMessage, safeErrors);
+}
+
 /**
  * Single string for Alerts / banners: top-level `message` plus validation `errors` from the API.
  */
 export function formatPlizApiErrorForUser(error: unknown): string {
   if (error instanceof PlizApiError) {
-    return formatPlizApiMessageBody(error.message, error.errors);
+    return formatSafePlizApiMessageBody(error.message, error.errors, error.status);
   }
   // Metro can load duplicate class instances so `instanceof` may fail; duck-type API errors.
   if (error && typeof error === 'object' && 'message' in error) {
@@ -93,15 +145,15 @@ export function formatPlizApiErrorForUser(error: unknown): string {
           ? normalizeApiErrorItems((error as { errors: unknown[] }).errors)
           : [];
       if (typeof status === 'number') {
-        return formatPlizApiMessageBody(msg, errs);
+        return formatSafePlizApiMessageBody(msg, errs, status);
       }
       if (errs.length > 0) {
-        return formatPlizApiMessageBody(msg, errs);
+        return formatSafePlizApiMessageBody(msg, errs);
       }
-      if (msg.trim()) return msg.trim();
+      if (msg.trim()) return userSafeApiMessage(msg);
     }
   }
-  if (error instanceof Error) return error.message;
+  if (error instanceof Error) return userSafeApiMessage(error.message);
   return 'Something went wrong. Please try again.';
 }
 

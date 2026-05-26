@@ -8,8 +8,8 @@ export function WithdrawFundsShieldNotice() {
     <View style={styles.box}>
       <Ionicons name="shield-checkmark" size={22} color="#2E8BEA" style={styles.icon} />
       <Text style={styles.text}>
-        Withdrawals are processed instantly to your bank account. You’ll need to enter your PIN to
-        confirm.
+        Withdrawals are processed securely to your bank account. You’ll need your Transaction PIN
+        to confirm.
       </Text>
     </View>
   );
