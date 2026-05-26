@@ -104,7 +104,7 @@ export default function KycVerificationScreen() {
   }, [resendSec]);
 
   const loadStatus = useCallback(
-    async (retryAfterRefresh = false) => {
+    async (retryAfterRefresh = false, options?: { silent?: boolean }) => {
       const token = await getAccessToken();
       if (!token) {
         setLoading(false);
@@ -118,12 +118,14 @@ export default function KycVerificationScreen() {
         if (isUnauthorizedSessionError(e) && !retryAfterRefresh) {
           const recovered = await recoverFromUnauthorized(signOut);
           if (recovered) {
-            await loadStatus(true);
+            await loadStatus(true, options);
             return;
           }
         }
-        const msg = formatPlizApiErrorForUser(e) || 'Could not load verification status.';
-        Alert.alert('Error', msg);
+        if (!options?.silent) {
+          const msg = formatPlizApiErrorForUser(e) || 'Could not load verification status.';
+          Alert.alert('Error', msg);
+        }
         setStatus(null);
       } finally {
         setLoading(false);
@@ -233,16 +235,22 @@ export default function KycVerificationScreen() {
   };
 
   const onSendOtp = async () => {
-    const token = await getAccessToken();
-    if (!token) return;
     setOtpBusy(true);
     try {
-      await sendKycPhoneOtp(token);
+      const result = await withUnauthorizedRecovery(signOut, (token) =>
+        sendKycPhoneOtp(token)
+      );
       setOtpRequested(true);
       setResendSec(RESEND_COOLDOWN_SEC);
-      Alert.alert('Code sent', 'Enter the 6-digit code we sent to your phone.');
-      await loadStatus();
+      Alert.alert(
+        'Code sent',
+        result.message || 'Enter the 6-digit code we sent to your phone.'
+      );
+      void loadStatus(false, { silent: true });
     } catch (e) {
+      if (isUnauthorizedSessionError(e)) {
+        return;
+      }
       const msg = formatPlizApiErrorForUser(e) || 'Could not send code.';
       Alert.alert('Could not send', msg);
     } finally {
@@ -252,15 +260,19 @@ export default function KycVerificationScreen() {
 
   const onResendOtp = async () => {
     if (resendSec > 0) return;
-    const token = await getAccessToken();
-    if (!token) return;
     setOtpBusy(true);
     try {
-      await resendKycPhoneOtp(token);
+      const result = await withUnauthorizedRecovery(signOut, (token) =>
+        resendKycPhoneOtp(token)
+      );
       setOtpRequested(true);
       setResendSec(RESEND_COOLDOWN_SEC);
-      Alert.alert('Code sent', 'A new code is on its way.');
+      Alert.alert('Code sent', result.message || 'A new code is on its way.');
+      void loadStatus(false, { silent: true });
     } catch (e) {
+      if (isUnauthorizedSessionError(e)) {
+        return;
+      }
       const msg = formatPlizApiErrorForUser(e) || 'Could not resend.';
       Alert.alert('Could not resend', msg);
     } finally {
@@ -269,8 +281,6 @@ export default function KycVerificationScreen() {
   };
 
   const onVerifyOtp = async () => {
-    const token = await getAccessToken();
-    if (!token) return;
     const code = otp.replace(/\D/g, '');
     if (code.length !== 6) {
       Alert.alert('Invalid code', 'Enter the 6-digit code from SMS.');
@@ -278,13 +288,16 @@ export default function KycVerificationScreen() {
     }
     setOtpBusy(true);
     try {
-      await verifyKycPhoneOtp(token, code);
+      await withUnauthorizedRecovery(signOut, (token) => verifyKycPhoneOtp(token, code));
       setOtp('');
       setOtpRequested(false);
-      await loadStatus();
+      await loadStatus(false, { silent: true });
       await refreshUser();
       Alert.alert('Phone verified', 'You can now verify your identity with NIN or international passport.');
     } catch (e) {
+      if (isUnauthorizedSessionError(e)) {
+        return;
+      }
       const msg = formatPlizApiErrorForUser(e) || 'Verification failed.';
       Alert.alert('Could not verify', msg);
     } finally {
@@ -382,6 +395,9 @@ export default function KycVerificationScreen() {
                     ? `We will send a 6-digit code to ${maskPhoneNumber(status.phoneNumber)}.`
                     : 'We send a one-time code to the phone number on your profile.'}
                 </Text>
+                <Text style={styles.pageHint}>
+                  If the SMS does not arrive, check your number is correct in Personal Information.
+                </Text>
 
                 {verification?.phoneVerified ? (
                   <View style={styles.phoneVerifiedCard}>
@@ -399,11 +415,11 @@ export default function KycVerificationScreen() {
 
                 <View style={styles.ctaStack}>
                   <CTAButton
-                    label={otpBusy ? 'Sending…' : 'Send verification code'}
+                    label={otpBusy ? 'Sending…' : 'Send code'}
                     onPress={() => void onSendOtp()}
                     variant="gradient"
                     disabled={otpBusy}
-                    accessibilityLabel="Send verification code"
+                    accessibilityLabel="Send verification code via SMS"
                   />
                 </View>
 
@@ -654,6 +670,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     color: '#667085',
+    marginBottom: 8,
+  },
+  pageHint: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#98A2B3',
     marginBottom: 20,
   },
   fieldLabel: {
