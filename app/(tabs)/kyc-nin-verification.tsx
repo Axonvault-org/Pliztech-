@@ -26,6 +26,12 @@ import { submitAndWaitForKycResult, ensureKycReadyForResubmit } from '@/lib/kyc/
 
 type NinDocumentType = 'slip' | 'card';
 
+function isValidNinOrVnin(value: string): boolean {
+  const trimmed = value.trim();
+  if (/^\d{11}$/.test(trimmed.replace(/\D/g, ''))) return true;
+  return /^[A-Za-z0-9]{16}$/.test(trimmed.replace(/\s/g, ''));
+}
+
 function getSubmitBlockReason({
   nin,
   ninDocumentType,
@@ -45,7 +51,9 @@ function getSubmitBlockReason({
   if (!profileNameReady) {
     return 'Add your legal first and last name in your profile before continuing.';
   }
-  if (nin.length !== 11) return 'Enter your full 11-digit NIN.';
+  if (!isValidNinOrVnin(nin)) {
+    return 'Enter your 11-digit NIN or 16-character Virtual NIN (vNIN) from the NIMC app.';
+  }
   if (!frontFile) {
     return ninDocumentType === 'card'
       ? 'Upload a photo of the front of your NIN card.'
@@ -155,24 +163,28 @@ export default function KycNinVerificationScreen() {
         <View style={styles.content}>
           <Text style={styles.title}>National ID (NIN)</Text>
           <Text style={styles.subtitle}>
-            Enter your 11-digit NIN and upload a clear photo of your document. Identity is verified
-            against the national registry using your NIN only.
+            Enter your 11-digit NIN or Virtual NIN (vNIN) from the NIMC app, then upload a clear
+            photo of your document. Identity is verified against the national registry.
           </Text>
 
           <ProfileNameNotice documentLabel="NIN" />
 
           {rejectionReason ? <KycRejectionBanner reason={rejectionReason} /> : null}
 
-          <Text style={styles.label}>NIN number</Text>
+          <Text style={styles.label}>NIN or Virtual NIN (vNIN)</Text>
           <TextInput
             style={styles.input}
-            placeholder="Enter 11-digit NIN"
+            placeholder="11-digit NIN or 16-character vNIN"
             placeholderTextColor="#9CA3AF"
-            keyboardType="number-pad"
-            maxLength={11}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            maxLength={16}
             value={nin}
-            onChangeText={(value) => setNin(value.replace(/\D/g, ''))}
+            onChangeText={(value) => setNin(value.replace(/[^A-Za-z0-9]/g, '').toUpperCase())}
           />
+          <Text style={styles.sectionHint}>
+            Generate vNIN in the NIMC app using enterprise code 696739, or use your 11-digit NIN.
+          </Text>
 
           <Text style={styles.label}>Document type</Text>
           <View style={styles.segmentRow}>
