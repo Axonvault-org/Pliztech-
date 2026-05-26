@@ -127,14 +127,18 @@ export async function getKycStatus(accessToken: string): Promise<KycStatusPayloa
   return data.data;
 }
 
+export type KycPhoneOtpResult = {
+  message: string;
+  phoneNumber?: string;
+};
+
 /**
  * POST /api/kyc/phone/send-otp
  */
-export async function sendKycPhoneOtp(accessToken: string): Promise<void> {
+export async function sendKycPhoneOtp(accessToken: string): Promise<KycPhoneOtpResult> {
   const res = await fetch(apiUrl('/api/kyc/phone/send-otp'), {
     method: 'POST',
     headers: authHeaders(accessToken),
-    body: JSON.stringify({}),
     credentials: isWebAuthEnvironment() ? 'include' : 'omit',
   });
 
@@ -145,21 +149,29 @@ export async function sendKycPhoneOtp(accessToken: string): Promise<void> {
     throw new PlizApiError('Invalid response from server', res.status);
   }
 
-  const data = json as { success?: boolean; message?: string };
+  const data = json as {
+    success?: boolean;
+    message?: string;
+    data?: { phoneNumber?: string };
+  };
 
   if (!res.ok || data.success !== true) {
     throw new PlizApiError(data.message ?? `Request failed (${res.status})`, res.status);
   }
+
+  return {
+    message: data.message ?? 'Verification code sent.',
+    phoneNumber: data.data?.phoneNumber,
+  };
 }
 
 /**
  * POST /api/kyc/phone/resend-otp
  */
-export async function resendKycPhoneOtp(accessToken: string): Promise<void> {
+export async function resendKycPhoneOtp(accessToken: string): Promise<KycPhoneOtpResult> {
   const res = await fetch(apiUrl('/api/kyc/phone/resend-otp'), {
     method: 'POST',
     headers: authHeaders(accessToken),
-    body: JSON.stringify({}),
     credentials: isWebAuthEnvironment() ? 'include' : 'omit',
   });
 
@@ -170,11 +182,20 @@ export async function resendKycPhoneOtp(accessToken: string): Promise<void> {
     throw new PlizApiError('Invalid response from server', res.status);
   }
 
-  const data = json as { success?: boolean; message?: string };
+  const data = json as {
+    success?: boolean;
+    message?: string;
+    data?: { phoneNumber?: string };
+  };
 
   if (!res.ok || data.success !== true) {
     throw new PlizApiError(data.message ?? `Request failed (${res.status})`, res.status);
   }
+
+  return {
+    message: data.message ?? 'Verification code sent.',
+    phoneNumber: data.data?.phoneNumber,
+  };
 }
 
 /**
