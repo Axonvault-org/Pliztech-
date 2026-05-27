@@ -18,21 +18,16 @@ import { CTAButton } from '@/components/CTAButton';
 import { KycRejectionBanner } from '@/components/kyc/KycRejectionBanner';
 import { Screen } from '@/components/Screen';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
-import { KYC_REQUIRE_FACE_LIVENESS } from '@/constants/kyc-config';
-import { useKycImagePicker } from '@/hooks/useKycImagePicker';
 import {
   getKycStatus,
   resetKycAfterRejection,
   resendKycPhoneOtp,
   sendKycPhoneOtp,
-  verifyKycFaceLiveness,
   verifyKycPhoneOtp,
-  type KycVerificationType,
   type KycStatusPayload,
 } from '@/lib/api/kyc';
 import { formatPlizApiErrorForUser } from '@/lib/api/types';
 import { getAccessToken } from '@/lib/auth/access-token';
-import { kycImageToBase64 } from '@/lib/kyc/helpers';
 import { submitAndWaitForKycResult } from '@/lib/kyc/submit-flow';
 import {
   isUnauthorizedSessionError,
@@ -41,32 +36,6 @@ import {
 } from '@/lib/auth/session-expired';
 
 const RESEND_COOLDOWN_SEC = 60;
-
-const VERIFICATION_METHODS: {
-  type: KycVerificationType;
-  title: string;
-  body: string;
-  duration: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  iconBg: string;
-}[] = [
-  {
-    type: 'nin',
-    title: 'National ID (NIN)',
-    body: 'Verify with your 11-digit NIN — matched against the national registry',
-    duration: '~ 3 minutes',
-    icon: 'id-card-outline',
-    iconBg: '#A93BC4',
-  },
-  {
-    type: 'passport',
-    title: 'International Passport',
-    body: 'Verify with your passport — selfie matched to your passport photo',
-    duration: '~ 4 minutes',
-    icon: 'document-text-outline',
-    iconBg: '#2D6CDF',
-  },
-];
 
 function identityReviewInFlight(
   verification: KycStatusPayload['verification'] | undefined
@@ -85,7 +54,6 @@ function maskPhoneNumber(phone: string): string {
 
 export default function KycVerificationScreen() {
   const { refreshUser, signOut } = useCurrentUser();
-  const { pickSelfie, modal: imagePickerModal, picking } = useKycImagePicker();
 
   const [status, setStatus] = useState<KycStatusPayload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -160,20 +128,12 @@ export default function KycVerificationScreen() {
     !identityReviewInFlight(verification) &&
     (verification?.status !== 'rejected' || verification?.canRetry === true);
 
-  const requiresSelfie =
-    verification?.verificationType === 'passport' && KYC_REQUIRE_FACE_LIVENESS;
-
-  const showFaceLiveness =
-    requiresSelfie &&
-    steps[2]?.completed === true &&
-    steps[3]?.completed !== true &&
-    !verification?.isVerified &&
-    !identityReviewInFlight(verification);
-
   const showFinalSubmit =
     !verification?.isVerified &&
     !identityReviewInFlight(verification) &&
-    (requiresSelfie ? steps[3]?.completed === true : steps[2]?.completed === true);
+    verification?.verificationType === 'nin' &&
+    verification?.documentVerified === true &&
+    verification?.status !== 'rejected';
 
   const handleUiPrimary = async () => {
     if (!ui) return;
@@ -196,13 +156,12 @@ export default function KycVerificationScreen() {
     }
 
     if (url === '/kyc/update') {
-      const token = await getAccessToken();
-      if (!token) return;
       setKycBusy(true);
       try {
-        await resetKycAfterRejection(token);
+        await withUnauthorizedRecovery(signOut, (token) => resetKycAfterRejection(token));
         await loadStatus();
       } catch (e) {
+        if (isUnauthorizedSessionError(e)) return;
         const msg = formatPlizApiErrorForUser(e) || 'Could not restart verification.';
         Alert.alert('Could not restart', msg);
       } finally {
@@ -226,7 +185,7 @@ export default function KycVerificationScreen() {
       if (showDocumentForm) {
         Alert.alert(
           'Upload your document',
-          'Choose NIN or international passport below, fill the required details, and upload a clear image.'
+          'Choose NIN below, fill the required details, and upload a clear image of your NIN slip or card.'
         );
         return;
       }
@@ -293,7 +252,7 @@ export default function KycVerificationScreen() {
       setOtpRequested(false);
       await loadStatus(false, { silent: true });
       await refreshUser();
-      Alert.alert('Phone verified', 'You can now verify your identity with NIN or international passport.');
+      Alert.alert('Phone verified', 'You can now verify your identity with your NIN.');
     } catch (e) {
       if (isUnauthorizedSessionError(e)) {
         return;
@@ -302,32 +261,6 @@ export default function KycVerificationScreen() {
       Alert.alert('Could not verify', msg);
     } finally {
       setOtpBusy(false);
-    }
-  };
-
-  const onFaceLiveness = async () => {
-    if (picking) return;
-    const verificationType = verification?.verificationType;
-    const file = await pickSelfie();
-    if (!file) return;
-    setKycBusy(true);
-    try {
-      const imageBase64 = await kycImageToBase64(file);
-      await withUnauthorizedRecovery(signOut, (token) =>
-        verifyKycFaceLiveness(token, imageBase64)
-      );
-      await loadStatus();
-      Alert.alert(
-        'Selfie confirmed',
-        verificationType === 'passport'
-          ? 'Your selfie will be compared to your passport photo when you submit.'
-          : 'You can now submit your verification for review.'
-      );
-    } catch (e) {
-      const msg = formatPlizApiErrorForUser(e) || 'Face liveness failed.';
-      Alert.alert('Could not verify selfie', msg);
-    } finally {
-      setKycBusy(false);
     }
   };
 
@@ -407,7 +340,7 @@ export default function KycVerificationScreen() {
                     <View style={styles.phoneVerifiedCopy}>
                       <Text style={styles.phoneVerifiedTitle}>Phone number verified</Text>
                       <Text style={styles.phoneVerifiedText}>
-                        You can continue with NIN or international passport verification.
+                        You can continue with NIN verification.
                       </Text>
                     </View>
                   </View>
@@ -466,50 +399,40 @@ export default function KycVerificationScreen() {
                     <View style={styles.phoneVerifiedCopy}>
                       <Text style={styles.phoneVerifiedTitle}>Phone number verified</Text>
                       <Text style={styles.phoneVerifiedText}>
-                        Choose NIN or international passport to complete identity verification.
+                        Choose NIN to complete identity verification.
                       </Text>
                     </View>
                   </View>
                 ) : null}
 
                 <View style={styles.methodHeader}>
-                  <Text style={styles.methodTitle}>Choose a verification method</Text>
+                  <Text style={styles.methodTitle}>Verify with NIN</Text>
                   <Text style={styles.methodSubtitle}>
                     Verified accounts unlock higher limits and earn trust badges
                   </Text>
                 </View>
 
-                <View style={styles.methodList}>
-                  {VERIFICATION_METHODS.map((method) => {
-                    return (
-                      <Pressable
-                        key={method.type}
-                        style={styles.methodCard}
-                        onPress={() =>
-                          router.push(
-                            method.type === 'nin'
-                              ? '/(tabs)/kyc-nin-verification'
-                              : '/(tabs)/kyc-passport-verification'
-                          )
-                        }
-                        accessibilityRole="button"
-                      >
-                        <View style={[styles.methodIconBox, { backgroundColor: method.iconBg }]}>
-                          <Ionicons name={method.icon} size={28} color="#FFFFFF" />
-                        </View>
-                        <View style={styles.methodCopy}>
-                          <Text style={styles.methodCardTitle}>{method.title}</Text>
-                          <Text style={styles.methodCardBody}>{method.body}</Text>
-                          <View style={styles.durationRow}>
-                            <Ionicons name="time-outline" size={11} color="#6B7280" />
-                            <Text style={styles.durationText}>{method.duration}</Text>
-                          </View>
-                        </View>
-                        <Ionicons name="chevron-forward" size={22} color="#6B7280" />
-                      </Pressable>
-                    );
-                  })}
-                </View>
+                <Pressable
+                  style={styles.methodCard}
+                  onPress={() => router.push('/(tabs)/kyc-nin-verification')}
+                  accessibilityRole="button"
+                >
+                  <View style={[styles.methodIconBox, { backgroundColor: '#A93BC4' }]}>
+                    <Ionicons name="id-card-outline" size={28} color="#FFFFFF" />
+                  </View>
+                  <View style={styles.methodCopy}>
+                    <Text style={styles.methodCardTitle}>National ID (NIN)</Text>
+                    <Text style={styles.methodCardBody}>
+                      Verify with your 11-digit NIN or Virtual NIN — matched against the national
+                      registry
+                    </Text>
+                    <View style={styles.durationRow}>
+                      <Ionicons name="time-outline" size={11} color="#6B7280" />
+                      <Text style={styles.durationText}>~ 3 minutes</Text>
+                    </View>
+                  </View>
+                  <Ionicons name="chevron-forward" size={22} color="#6B7280" />
+                </Pressable>
 
                 <View style={styles.securityNotice}>
                   <Ionicons name="information-circle-outline" size={16} color="#64748B" />
@@ -521,33 +444,12 @@ export default function KycVerificationScreen() {
               </>
             ) : null}
 
-            {showFaceLiveness ? (
-              <View style={styles.actionCard}>
-                <Text style={styles.actionTitle}>Take a selfie</Text>
-                <Text style={styles.actionHint}>
-                  {verification?.verificationType === 'passport'
-                    ? 'Take a clear selfie in good lighting. It will be matched to the photo on your passport when you submit.'
-                    : 'Take a clear selfie in good lighting so we can confirm you are the document holder.'}
-                </Text>
-                <View style={styles.ctaWrap}>
-                  <CTAButton
-                    label={kycBusy ? 'Confirming selfie…' : 'Take selfie'}
-                    onPress={() => void onFaceLiveness()}
-                    variant="gradient"
-                    disabled={kycBusy || picking}
-                    accessibilityLabel="Take selfie"
-                  />
-                </View>
-              </View>
-            ) : null}
-
             {showFinalSubmit ? (
               <View style={styles.actionCard}>
                 <Text style={styles.actionTitle}>Submit verification</Text>
                 <Text style={styles.actionHint}>
-                  {verification?.verificationType === 'passport'
-                    ? 'We will verify your passport with the government registry and match your selfie to your passport photo.'
-                    : 'We will verify your NIN with the government registry and confirm your name matches your profile.'}
+                  We will verify your NIN with the government registry and confirm your name matches
+                  your profile.
                 </Text>
                 <View style={styles.ctaWrap}>
                   <CTAButton
@@ -575,7 +477,6 @@ export default function KycVerificationScreen() {
         ) : null}
       </View>
     </Screen>
-    {imagePickerModal}
     </>
   );
 }

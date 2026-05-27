@@ -8,8 +8,7 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "http://localhost:3000",
-        "EXPO_PUBLIC_KYC_REQUIRE_FACE_LIVENESS": "false"
+        "EXPO_PUBLIC_API_BASE_URL": "http://localhost:3000"
       }
     },
     "staging": {
@@ -17,16 +16,14 @@
       "channel": "staging",
       "env": {
         "EXPO_PUBLIC_API_BASE_URL": "https://api-staging.plz.ng",
-        "EXPO_PUBLIC_FRONTEND_URL": "https://pliztech.vercel.app",
-        "EXPO_PUBLIC_KYC_REQUIRE_FACE_LIVENESS": "false"
+        "EXPO_PUBLIC_FRONTEND_URL": "https://pliztech.vercel.app"
       }
     },
     "production": {
       "autoIncrement": true,
       "channel": "production",
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://api.plz.ng",
-        "EXPO_PUBLIC_KYC_REQUIRE_FACE_LIVENESS": "false"
+        "EXPO_PUBLIC_API_BASE_URL": "https://api.plz.ng"
       }
     }
   },

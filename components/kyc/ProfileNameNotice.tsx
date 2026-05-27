@@ -6,13 +6,13 @@ import { Text } from '@/components/Text';
 import { displayFullName, useCurrentUser } from '@/contexts/CurrentUserContext';
 
 type ProfileNameNoticeProps = {
-  documentLabel: 'NIN' | 'passport';
+  documentLabel?: 'NIN';
 };
 
 /**
- * Reminds users that profile names must match their government ID before Prembly verification.
+ * Reminds users that profile names must match their NIN before Prembly verification.
  */
-export function ProfileNameNotice({ documentLabel }: ProfileNameNoticeProps) {
+export function ProfileNameNotice({ documentLabel = 'NIN' }: ProfileNameNoticeProps) {
   const { user } = useCurrentUser();
   const firstName = user?.profile?.firstName?.trim();
   const lastName = user?.profile?.lastName?.trim();

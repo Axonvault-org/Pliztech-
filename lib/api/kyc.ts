@@ -55,7 +55,7 @@ export type KycStatusPayload = {
 
 export type KycDocumentUploadBase = {
   verificationType: KycVerificationType;
-  documentType: 'nin_front' | 'nin_back' | 'passport_biodata';
+  documentType: 'nin_front' | 'nin_back';
   file: {
     uri: string;
     name: string;
@@ -73,18 +73,7 @@ export type KycNinDocumentUpload = KycDocumentUploadBase & {
   ninLGA?: string;
 };
 
-export type KycPassportDocumentUpload = KycDocumentUploadBase & {
-  verificationType: 'passport';
-  documentType: 'passport_biodata';
-  passportMiddleName?: string;
-  passportNumber: string;
-  passportPlaceOfBirth: string;
-  passportIssueDate: string;
-  passportExpiry: string;
-  passportPlaceOfIssue: string;
-};
-
-export type KycDocumentUploadBody = KycNinDocumentUpload | KycPassportDocumentUpload;
+export type KycDocumentUploadBody = KycNinDocumentUpload;
 
 function authHeaders(accessToken: string): HeadersInit {
   return {
@@ -239,7 +228,7 @@ function isKycVerificationRecord(value: unknown): value is KycVerificationRecord
 }
 
 /**
- * POST /api/kyc/document/upload — upload NIN/passport scan.
+ * POST /api/kyc/document/upload — upload NIN scan.
  */
 export async function uploadKycDocument(
   accessToken: string,
@@ -261,13 +250,6 @@ export async function uploadKycDocument(
     appendIfPresent(form, 'ninMiddleName', body.ninMiddleName);
     appendIfPresent(form, 'ninStateOfOrigin', body.ninStateOfOrigin);
     appendIfPresent(form, 'ninLGA', body.ninLGA);
-  } else {
-    appendIfPresent(form, 'passportMiddleName', body.passportMiddleName);
-    form.append('passportNumber', body.passportNumber.trim().toUpperCase());
-    form.append('passportPlaceOfBirth', body.passportPlaceOfBirth.trim());
-    form.append('passportIssueDate', body.passportIssueDate.trim());
-    form.append('passportExpiry', body.passportExpiry.trim());
-    form.append('passportPlaceOfIssue', body.passportPlaceOfIssue.trim());
   }
 
   const res = await fetch(apiUrl('/api/kyc/document/upload'), {
@@ -305,41 +287,7 @@ export async function uploadKycDocument(
 }
 
 /**
- * POST /api/kyc/face-liveness — submit selfie image as base64.
- */
-export async function verifyKycFaceLiveness(
-  accessToken: string,
-  imageBase64: string
-): Promise<{ passed: boolean; score?: number }> {
-  const res = await fetch(apiUrl('/api/kyc/face-liveness'), {
-    method: 'POST',
-    headers: authHeaders(accessToken),
-    body: JSON.stringify({ image: imageBase64 }),
-    credentials: isWebAuthEnvironment() ? 'include' : 'omit',
-  });
-
-  let json: unknown;
-  try {
-    json = await res.json();
-  } catch {
-    throw new PlizApiError('Invalid response from server', res.status);
-  }
-
-  const data = json as {
-    success?: boolean;
-    message?: string;
-    data?: { passed: boolean; score?: number };
-  };
-
-  if (!res.ok || data.success !== true || !data.data) {
-    throw new PlizApiError(data.message ?? `Request failed (${res.status})`, res.status);
-  }
-
-  return data.data;
-}
-
-/**
- * POST /api/kyc/submit — final identity submission after document + liveness.
+ * POST /api/kyc/submit — final identity submission after document upload.
  */
 export async function submitKyc(accessToken: string): Promise<KycVerificationRecord> {
   const res = await fetch(apiUrl('/api/kyc/submit'), {

@@ -58,7 +58,6 @@ export default function TabLayout() {
       <Stack.Screen name="share-story" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="kyc-verification" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="kyc-nin-verification" options={{ headerShown: false, presentation: 'card' }} />
-      <Stack.Screen name="kyc-passport-verification" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen
         name="kyc-verification-complete"
         options={{ headerShown: false, presentation: 'card' }}

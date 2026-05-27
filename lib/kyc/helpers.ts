@@ -3,9 +3,6 @@ import { Alert, Platform } from 'react-native';
 
 export const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Nigerian international passport number (e.g. A12345678). */
-export const PASSPORT_NUMBER_REGEX = /^[A-Z][0-9]{8}$/;
-
 export type PickedKycFile = { uri: string; name: string; type: string; base64?: string };
 
 export function isValidIsoDate(value: string): boolean {
