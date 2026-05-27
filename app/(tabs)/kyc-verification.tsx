@@ -24,6 +24,7 @@ import {
   resendKycPhoneOtp,
   sendKycPhoneOtp,
   verifyKycPhoneOtp,
+  type KycPhoneOtpChannel,
   type KycStatusPayload,
 } from '@/lib/api/kyc';
 import { formatPlizApiErrorForUser } from '@/lib/api/types';
@@ -36,6 +37,16 @@ import {
 } from '@/lib/auth/session-expired';
 
 const RESEND_COOLDOWN_SEC = 60;
+
+function otpChannelLabel(channel: KycPhoneOtpChannel): string {
+  return channel === 'whatsapp' ? 'WhatsApp' : 'text SMS';
+}
+
+function otpDeliveryHint(channel: KycPhoneOtpChannel): string {
+  return channel === 'whatsapp'
+    ? 'If the message does not arrive, try text SMS or check your number in Personal Information.'
+    : 'If the SMS does not arrive, try WhatsApp or check your number in Personal Information.';
+}
 
 function identityReviewInFlight(
   verification: KycStatusPayload['verification'] | undefined
@@ -58,10 +69,12 @@ export default function KycVerificationScreen() {
   const [status, setStatus] = useState<KycStatusPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [otp, setOtp] = useState('');
-  const [otpBusy, setOtpBusy] = useState(false);
+  const [sendBusy, setSendBusy] = useState(false);
+  const [verifyBusy, setVerifyBusy] = useState(false);
   const [kycBusy, setKycBusy] = useState(false);
   const [resendSec, setResendSec] = useState(0);
   const [otpRequested, setOtpRequested] = useState(false);
+  const [otpChannel, setOtpChannel] = useState<KycPhoneOtpChannel>('sms');
 
   useEffect(() => {
     if (resendSec <= 0) return;
@@ -194,17 +207,16 @@ export default function KycVerificationScreen() {
   };
 
   const onSendOtp = async () => {
-    setOtpBusy(true);
+    setSendBusy(true);
     try {
       const result = await withUnauthorizedRecovery(signOut, (token) =>
-        sendKycPhoneOtp(token)
+        sendKycPhoneOtp(token, otpChannel)
       );
       setOtpRequested(true);
       setResendSec(RESEND_COOLDOWN_SEC);
-      Alert.alert(
-        'Code sent',
-        result.message || 'Enter the 6-digit code we sent to your phone.'
-      );
+      if (result.channel) {
+        setOtpChannel(result.channel);
+      }
       void loadStatus(false, { silent: true });
     } catch (e) {
       if (isUnauthorizedSessionError(e)) {
@@ -213,20 +225,22 @@ export default function KycVerificationScreen() {
       const msg = formatPlizApiErrorForUser(e) || 'Could not send code.';
       Alert.alert('Could not send', msg);
     } finally {
-      setOtpBusy(false);
+      setSendBusy(false);
     }
   };
 
   const onResendOtp = async () => {
     if (resendSec > 0) return;
-    setOtpBusy(true);
+    setSendBusy(true);
     try {
       const result = await withUnauthorizedRecovery(signOut, (token) =>
-        resendKycPhoneOtp(token)
+        resendKycPhoneOtp(token, otpChannel)
       );
       setOtpRequested(true);
       setResendSec(RESEND_COOLDOWN_SEC);
-      Alert.alert('Code sent', result.message || 'A new code is on its way.');
+      if (result.channel) {
+        setOtpChannel(result.channel);
+      }
       void loadStatus(false, { silent: true });
     } catch (e) {
       if (isUnauthorizedSessionError(e)) {
@@ -235,17 +249,17 @@ export default function KycVerificationScreen() {
       const msg = formatPlizApiErrorForUser(e) || 'Could not resend.';
       Alert.alert('Could not resend', msg);
     } finally {
-      setOtpBusy(false);
+      setSendBusy(false);
     }
   };
 
   const onVerifyOtp = async () => {
     const code = otp.replace(/\D/g, '');
     if (code.length !== 6) {
-      Alert.alert('Invalid code', 'Enter the 6-digit code from SMS.');
+      Alert.alert('Invalid code', 'Enter the 6-digit code we sent you.');
       return;
     }
-    setOtpBusy(true);
+    setVerifyBusy(true);
     try {
       await withUnauthorizedRecovery(signOut, (token) => verifyKycPhoneOtp(token, code));
       setOtp('');
@@ -260,7 +274,7 @@ export default function KycVerificationScreen() {
       const msg = formatPlizApiErrorForUser(e) || 'Verification failed.';
       Alert.alert('Could not verify', msg);
     } finally {
-      setOtpBusy(false);
+      setVerifyBusy(false);
     }
   };
 
@@ -328,9 +342,60 @@ export default function KycVerificationScreen() {
                     ? `We will send a 6-digit code to ${maskPhoneNumber(status.phoneNumber)}.`
                     : 'We send a one-time code to the phone number on your profile.'}
                 </Text>
-                <Text style={styles.pageHint}>
-                  If the SMS does not arrive, check your number is correct in Personal Information.
-                </Text>
+
+                <Text style={styles.fieldLabel}>How should we send your code?</Text>
+                <View style={styles.channelRow}>
+                  <Pressable
+                    style={[
+                      styles.channelOption,
+                      otpChannel === 'sms' && styles.channelOptionSelected,
+                    ]}
+                    onPress={() => setOtpChannel('sms')}
+                    disabled={sendBusy || verifyBusy}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: otpChannel === 'sms' }}
+                  >
+                    <Ionicons
+                      name="chatbox-ellipses-outline"
+                      size={20}
+                      color={otpChannel === 'sms' ? '#2E8BEA' : '#6B7280'}
+                    />
+                    <Text
+                      style={[
+                        styles.channelOptionLabel,
+                        otpChannel === 'sms' && styles.channelOptionLabelSelected,
+                      ]}
+                    >
+                      Text SMS
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    style={[
+                      styles.channelOption,
+                      otpChannel === 'whatsapp' && styles.channelOptionSelected,
+                    ]}
+                    onPress={() => setOtpChannel('whatsapp')}
+                    disabled={sendBusy || verifyBusy}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: otpChannel === 'whatsapp' }}
+                  >
+                    <Ionicons
+                      name="logo-whatsapp"
+                      size={20}
+                      color={otpChannel === 'whatsapp' ? '#16A34A' : '#6B7280'}
+                    />
+                    <Text
+                      style={[
+                        styles.channelOptionLabel,
+                        otpChannel === 'whatsapp' && styles.channelOptionLabelSelected,
+                      ]}
+                    >
+                      WhatsApp
+                    </Text>
+                  </Pressable>
+                </View>
+
+                <Text style={styles.pageHint}>{otpDeliveryHint(otpChannel)}</Text>
 
                 {verification?.phoneVerified ? (
                   <View style={styles.phoneVerifiedCard}>
@@ -346,45 +411,51 @@ export default function KycVerificationScreen() {
                   </View>
                 ) : null}
 
-                <View style={styles.ctaStack}>
-                  <CTAButton
-                    label={otpBusy ? 'Sending…' : 'Send code'}
-                    onPress={() => void onSendOtp()}
-                    variant="gradient"
-                    disabled={otpBusy}
-                    accessibilityLabel="Send verification code via SMS"
-                  />
-                </View>
-
                 <Text style={styles.fieldLabel}>Verification code</Text>
                 <TextInput
                   style={styles.fieldInput}
-                  placeholder="Enter 6-digit code"
+                  placeholder={otpRequested ? 'Enter 6-digit code' : 'Request OTP to receive your code'}
                   placeholderTextColor="#9CA3AF"
                   keyboardType="number-pad"
                   maxLength={6}
                   value={otp}
                   onChangeText={(t) => setOtp(t.replace(/\D/g, ''))}
-                  editable={!otpBusy}
+                  editable={!verifyBusy && !sendBusy && otpRequested}
                 />
 
                 <View style={styles.ctaStack}>
-                  <CTAButton
-                    label={otpBusy ? 'Verifying…' : 'Verify code'}
-                    onPress={() => void onVerifyOtp()}
-                    variant="gradient"
-                    disabled={otpBusy || otp.length !== 6}
-                    accessibilityLabel="Verify code"
-                  />
-                  {otpRequested ? (
+                  {!otpRequested ? (
                     <CTAButton
-                      label={resendSec > 0 ? `Resend code (${resendSec}s)` : 'Resend code'}
-                      onPress={() => void onResendOtp()}
-                      variant="transparent"
-                      disabled={otpBusy || resendSec > 0}
-                      accessibilityLabel="Resend code"
+                      label={sendBusy ? 'Sending…' : 'Request OTP'}
+                      onPress={() => void onSendOtp()}
+                      variant="gradient"
+                      disabled={sendBusy}
+                      accessibilityLabel={`Request OTP via ${otpChannelLabel(otpChannel)}`}
                     />
-                  ) : null}
+                  ) : (
+                    <>
+                      <CTAButton
+                        label={verifyBusy ? 'Verifying…' : 'Verify code'}
+                        onPress={() => void onVerifyOtp()}
+                        variant="gradient"
+                        disabled={verifyBusy || sendBusy || otp.length !== 6}
+                        accessibilityLabel="Verify code"
+                      />
+                      <CTAButton
+                        label={
+                          sendBusy
+                            ? 'Sending…'
+                            : resendSec > 0
+                              ? `Resend OTP (${resendSec}s)`
+                              : 'Resend OTP'
+                        }
+                        onPress={() => void onResendOtp()}
+                        variant="transparent"
+                        disabled={verifyBusy || sendBusy || resendSec > 0}
+                        accessibilityLabel={`Resend OTP via ${otpChannelLabel(otpChannel)}`}
+                      />
+                    </>
+                  )}
                 </View>
               </View>
             ) : null}
@@ -578,6 +649,35 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     color: '#98A2B3',
     marginBottom: 20,
+  },
+  channelRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 12,
+  },
+  channelOption: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    minHeight: 52,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+  },
+  channelOptionSelected: {
+    borderColor: '#2E8BEA',
+    backgroundColor: '#EFF6FF',
+  },
+  channelOptionLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  channelOptionLabelSelected: {
+    color: '#1D4ED8',
   },
   fieldLabel: {
     fontSize: 16,

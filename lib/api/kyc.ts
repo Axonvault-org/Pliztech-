@@ -116,18 +116,25 @@ export async function getKycStatus(accessToken: string): Promise<KycStatusPayloa
   return data.data;
 }
 
+export type KycPhoneOtpChannel = 'sms' | 'whatsapp';
+
 export type KycPhoneOtpResult = {
   message: string;
   phoneNumber?: string;
+  channel?: KycPhoneOtpChannel;
 };
 
 /**
  * POST /api/kyc/phone/send-otp
  */
-export async function sendKycPhoneOtp(accessToken: string): Promise<KycPhoneOtpResult> {
+export async function sendKycPhoneOtp(
+  accessToken: string,
+  channel: KycPhoneOtpChannel = 'sms'
+): Promise<KycPhoneOtpResult> {
   const res = await fetch(apiUrl('/api/kyc/phone/send-otp'), {
     method: 'POST',
     headers: authHeaders(accessToken),
+    body: JSON.stringify({ channel }),
     credentials: isWebAuthEnvironment() ? 'include' : 'omit',
   });
 
@@ -141,7 +148,7 @@ export async function sendKycPhoneOtp(accessToken: string): Promise<KycPhoneOtpR
   const data = json as {
     success?: boolean;
     message?: string;
-    data?: { phoneNumber?: string };
+    data?: { phoneNumber?: string; channel?: KycPhoneOtpChannel };
   };
 
   if (!res.ok || data.success !== true) {
@@ -151,16 +158,21 @@ export async function sendKycPhoneOtp(accessToken: string): Promise<KycPhoneOtpR
   return {
     message: data.message ?? 'Verification code sent.',
     phoneNumber: data.data?.phoneNumber,
+    channel: data.data?.channel,
   };
 }
 
 /**
  * POST /api/kyc/phone/resend-otp
  */
-export async function resendKycPhoneOtp(accessToken: string): Promise<KycPhoneOtpResult> {
+export async function resendKycPhoneOtp(
+  accessToken: string,
+  channel: KycPhoneOtpChannel = 'sms'
+): Promise<KycPhoneOtpResult> {
   const res = await fetch(apiUrl('/api/kyc/phone/resend-otp'), {
     method: 'POST',
     headers: authHeaders(accessToken),
+    body: JSON.stringify({ channel }),
     credentials: isWebAuthEnvironment() ? 'include' : 'omit',
   });
 
@@ -174,7 +186,7 @@ export async function resendKycPhoneOtp(accessToken: string): Promise<KycPhoneOt
   const data = json as {
     success?: boolean;
     message?: string;
-    data?: { phoneNumber?: string };
+    data?: { phoneNumber?: string; channel?: KycPhoneOtpChannel };
   };
 
   if (!res.ok || data.success !== true) {
@@ -184,6 +196,7 @@ export async function resendKycPhoneOtp(accessToken: string): Promise<KycPhoneOt
   return {
     message: data.message ?? 'Verification code sent.',
     phoneNumber: data.data?.phoneNumber,
+    channel: data.data?.channel,
   };
 }
 
