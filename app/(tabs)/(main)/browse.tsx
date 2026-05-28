@@ -1,6 +1,5 @@
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -9,6 +8,7 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
+import { useQuery } from '@tanstack/react-query';
 
 import { Text } from '@/components/Text';
 import { BrowseRequestCard } from '@/components/browse/BrowseRequestCard';
@@ -22,57 +22,46 @@ import {
   uiCategoryToApiCategory,
 } from '@/lib/api/beg';
 import { PlizApiError } from '@/lib/api/types';
+import { queryKeys } from '@/lib/query/query-keys';
+import { STALE_TIMES } from '@/lib/query/stale-times';
 import type { BrowseRequest } from '@/lib/types/home';
 
 export default function BrowseScreen() {
   const [search, setSearch] = useState('');
   const [mainFilter, setMainFilter] = useState<MainFilter>('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
-  const [requests, setRequests] = useState<BrowseRequest[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const isFirstLoad = useRef(true);
 
-  const loadBegs = useCallback(async () => {
-    setError(null);
-    if (isFirstLoad.current) {
-      setLoading(true);
-    } else {
-      setRefreshing(true);
-    }
-    try {
-      const apiCategory =
-        categoryFilter === 'all' ? undefined : uiCategoryToApiCategory(categoryFilter);
+  const apiCategory =
+    categoryFilter === 'all' ? undefined : uiCategoryToApiCategory(categoryFilter);
+
+  const begsQuery = useQuery({
+    queryKey: queryKeys.begsFeed({ page: 1, limit: 50, category: apiCategory }),
+    queryFn: async () => {
       const { begs } = await getBegsFeed({
         page: 1,
         limit: 50,
         category: apiCategory,
       });
-      setRequests(begs.map(feedBegToBrowseRequest));
-    } catch (e) {
-      const msg =
-        e instanceof PlizApiError
-          ? e.message
-          : e instanceof Error
-            ? e.message
-            : 'Could not load requests';
-      setError(msg);
-      setRequests([]);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-      isFirstLoad.current = false;
-    }
-  }, [categoryFilter]);
+      return begs.map(feedBegToBrowseRequest);
+    },
+    staleTime: STALE_TIMES.begsFeed,
+  });
 
-  useEffect(() => {
-    void loadBegs();
-  }, [loadBegs]);
+  const requests = begsQuery.data ?? [];
+  const loading = begsQuery.isLoading;
+  const refreshing = begsQuery.isFetching && !begsQuery.isLoading;
+  const error =
+    begsQuery.error instanceof PlizApiError
+      ? begsQuery.error.message
+      : begsQuery.error instanceof Error
+        ? begsQuery.error.message
+        : begsQuery.isError
+          ? 'Could not load requests'
+          : null;
 
   const onRefresh = useCallback(() => {
-    void loadBegs();
-  }, [loadBegs]);
+    void begsQuery.refetch();
+  }, [begsQuery]);
 
   const filteredRequests = useMemo(() => {
     let list: BrowseRequest[] = [...requests];
@@ -121,9 +110,7 @@ export default function BrowseScreen() {
   }, [search, mainFilter, categoryFilter, requests]);
 
   const renderItem = useCallback(
-    ({ item }: { item: BrowseRequest }) => (
-      <BrowseRequestCard request={item} />
-    ),
+    ({ item }: { item: BrowseRequest }) => <BrowseRequestCard request={item} />,
     []
   );
 
@@ -139,7 +126,7 @@ export default function BrowseScreen() {
         />
         {error ? (
           <Pressable
-            onPress={() => void loadBegs()}
+            onPress={() => void begsQuery.refetch()}
             style={styles.errorBanner}
             accessibilityRole="button"
             accessibilityLabel="Retry loading requests"
@@ -150,7 +137,7 @@ export default function BrowseScreen() {
         ) : null}
       </>
     ),
-    [search, mainFilter, categoryFilter, error, loadBegs]
+    [search, mainFilter, categoryFilter, error, begsQuery]
   );
 
   return (

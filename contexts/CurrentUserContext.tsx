@@ -2,12 +2,11 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
   useRef,
-  useState,
   type ReactNode,
 } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   getMe,
   invalidateRefreshCookie,
@@ -21,6 +20,8 @@ import {
   logoutAndGoToLogin,
   recoverFromUnauthorized,
 } from '@/lib/auth/session-expired';
+import { queryKeys } from '@/lib/query/query-keys';
+import { STALE_TIMES } from '@/lib/query/stale-times';
 
 export function displayFirstName(user: MeUser | null): string {
   if (!user) return '';
@@ -151,18 +152,8 @@ type CurrentUserContextValue = {
 const CurrentUserContext = createContext<CurrentUserContextValue | null>(null);
 
 export function CurrentUserProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<MeUser | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const fetchSeq = useRef(0);
-  const inFlight = useRef<Promise<void> | null>(null);
+  const queryClient = useQueryClient();
   const signOutInFlight = useRef<Promise<void> | null>(null);
-  /** Latest user for refresh logic (avoids stale closure). */
-  const userRef = useRef<MeUser | null>(null);
-
-  useEffect(() => {
-    userRef.current = user;
-  }, [user]);
 
   const signOut = useCallback(async () => {
     if (signOutInFlight.current) {
@@ -170,7 +161,6 @@ export function CurrentUserProvider({ children }: { children: ReactNode }) {
     }
 
     signOutInFlight.current = (async () => {
-      fetchSeq.current += 1;
       const token = await getAccessToken();
       try {
         if (token) {
@@ -188,95 +178,59 @@ export function CurrentUserProvider({ children }: { children: ReactNode }) {
         }
       }
       await clearTokens();
-      setUser(null);
-      setError(null);
-      setIsLoading(false);
+      queryClient.setQueryData(queryKeys.me, null);
+      queryClient.removeQueries({ queryKey: queryKeys.me });
     })().finally(() => {
       signOutInFlight.current = null;
     });
 
     return signOutInFlight.current;
-  }, []);
+  }, [queryClient]);
 
-  const refreshUser = useCallback(async () => {
-    if (inFlight.current) {
-      return inFlight.current;
-    }
-
-    const run = async () => {
-      const seq = ++fetchSeq.current;
-      const hadUserAlready = userRef.current != null;
-      setError(null);
-
+  const meQuery = useQuery({
+    queryKey: queryKeys.me,
+    queryFn: async (): Promise<MeUser | null> => {
       let token = await getAccessToken();
       if (!token) {
         await tryRefreshAccessToken();
         token = await getAccessToken();
       }
-      if (!token) {
-        if (seq === fetchSeq.current) {
-          setUser(null);
-          setIsLoading(false);
-        }
-        return;
-      }
-
-      /** Only show global session loading when we don't have a user yet — not on background refetch (prevents tabs stack unmount → remount → focus refetch loop and 429s). */
-      let didSetBlockingLoad = false;
-      if (seq === fetchSeq.current && !hadUserAlready) {
-        setIsLoading(true);
-        didSetBlockingLoad = true;
-      }
+      if (!token) return null;
 
       try {
-        const me = await getMe(token);
-        if (seq === fetchSeq.current) {
-          setUser(me);
-        }
+        return await getMe(token);
       } catch (e) {
         if (e instanceof PlizApiError && e.status === 401) {
           const recovered = await recoverFromUnauthorized(signOut);
-          if (recovered && seq === fetchSeq.current) {
+          if (recovered) {
             const token2 = await getAccessToken();
             if (token2) {
-              try {
-                const me = await getMe(token2);
-                if (seq === fetchSeq.current) {
-                  setUser(me);
-                }
-              } catch (e2) {
-                if (e2 instanceof PlizApiError && e2.status === 401) {
-                  await logoutAndGoToLogin(signOut);
-                } else if (seq === fetchSeq.current) {
-                  setError(e2 instanceof Error ? e2.message : 'Failed to load user');
-                  setUser(null);
-                }
-              }
-            } else {
-              await logoutAndGoToLogin(signOut);
+              return getMe(token2);
             }
           }
-        } else if (seq === fetchSeq.current) {
-          setError(e instanceof Error ? e.message : 'Failed to load user');
-          setUser(null);
+          await logoutAndGoToLogin(signOut);
+          return null;
         }
-      } finally {
-        if (seq === fetchSeq.current && didSetBlockingLoad) {
-          setIsLoading(false);
-        }
+        throw e;
       }
-    };
+    },
+    staleTime: STALE_TIMES.me,
+    retry: false,
+  });
 
-    inFlight.current = run().finally(() => {
-      inFlight.current = null;
-    });
+  const refreshUser = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: queryKeys.me });
+    await queryClient.fetchQuery({ queryKey: queryKeys.me });
+  }, [queryClient]);
 
-    return inFlight.current;
-  }, [signOut]);
-
-  useEffect(() => {
-    void refreshUser();
-  }, [refreshUser]);
+  const user = meQuery.data ?? null;
+  const isLoading = meQuery.isLoading && user == null;
+  const error =
+    meQuery.error instanceof Error
+      ? meQuery.error.message
+      : meQuery.error
+        ? 'Failed to load user'
+        : null;
 
   const value = useMemo<CurrentUserContextValue>(
     () => ({

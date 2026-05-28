@@ -325,7 +325,7 @@ export default function PaymentCardsScreen() {
             <Text style={styles.infoModalTitle}>Add a card</Text>
             <Text style={styles.infoModalBody}>
               For your security, Plz doesn&apos;t store card numbers in the app. When you donate on a
-              request with Paystack using a reusable card, Paystack can save it to your account and
+              request with a reusable card, we can save it to your account and
               it will show up here for next time.
             </Text>
             <Pressable

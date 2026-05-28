@@ -42,7 +42,7 @@ function webRemoveItem(): void {
 }
 
 /**
- * Call before opening Paystack checkout so `/payment/callback` can show the thank-you sheet.
+ * Call before opening payment checkout so `/payment/callback` can show the thank-you sheet.
  * Web uses localStorage — expo-secure-store is a no-op stub on web and would throw before redirect.
  */
 export async function savePendingDonationThankYou(

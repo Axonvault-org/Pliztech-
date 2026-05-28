@@ -1,51 +1,48 @@
-import { useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { useCurrentUser } from '@/contexts/CurrentUserContext';
 import { getUnreadNotificationCount } from '@/lib/api/notifications';
+import { queryKeys } from '@/lib/query/query-keys';
+import { STALE_TIMES } from '@/lib/query/stale-times';
 import { getAccessToken } from '@/lib/auth/access-token';
 import {
   isUnauthorizedSessionError,
   recoverFromUnauthorized,
 } from '@/lib/auth/session-expired';
+import { useCurrentUser } from '@/contexts/CurrentUserContext';
 
 /**
- * Polls unread count when the screen is focused (same behavior as Home / Profile headers).
+ * Shared unread badge query — deduplicated across all headers via React Query.
  */
 export function useUnreadNotificationCount() {
   const { signOut } = useCurrentUser();
-  const [unreadCount, setUnreadCount] = useState(0);
+  const queryClient = useQueryClient();
 
-  const refreshUnreadCount = useCallback(
-    async (opts?: { _retryAfterRefresh?: boolean }) => {
-      const retryAfterRefresh = opts?._retryAfterRefresh ?? false;
+  const query = useQuery({
+    queryKey: queryKeys.unreadCount,
+    queryFn: async () => {
+      const token = await getAccessToken();
+      if (!token) return 0;
       try {
-        const token = await getAccessToken();
-        if (!token) {
-          setUnreadCount(0);
-          return;
-        }
-        const count = await getUnreadNotificationCount(token);
-        setUnreadCount(count);
+        return await getUnreadNotificationCount(token);
       } catch (e) {
-        if (isUnauthorizedSessionError(e) && !retryAfterRefresh) {
+        if (isUnauthorizedSessionError(e)) {
           const recovered = await recoverFromUnauthorized(signOut);
           if (recovered) {
-            await refreshUnreadCount({ _retryAfterRefresh: true });
+            const token2 = await getAccessToken();
+            if (token2) {
+              return getUnreadNotificationCount(token2);
+            }
           }
-          return;
         }
-        setUnreadCount(0);
+        return 0;
       }
     },
-    [signOut]
-  );
+    staleTime: STALE_TIMES.unreadCount,
+  });
 
-  useFocusEffect(
-    useCallback(() => {
-      void refreshUnreadCount();
-    }, [refreshUnreadCount])
-  );
-
-  return { unreadCount, refreshUnreadCount };
+  return {
+    unreadCount: query.data ?? 0,
+    refreshUnreadCount: () =>
+      queryClient.invalidateQueries({ queryKey: queryKeys.unreadCount }),
+  };
 }

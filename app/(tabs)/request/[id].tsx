@@ -32,13 +32,11 @@ import {
 import { initializeDonation, getBegDonations, type BegDonationApiItem } from '@/lib/api/donations';
 import { getReactions, toggleReaction, type ReactionsPayload } from '@/lib/api/reactions';
 import { formatPlizApiErrorForUser } from '@/lib/api/types';
-import { getPaystackDonationCallbackUrl, getPaystackWebCallbackUrl } from '@/lib/donation/paystack-callback-url';
-import {
-  consumePendingDonationThankYouIfBegMatches,
-  savePendingDonationThankYou,
-} from '@/lib/donation/pending-thank-you';
+import { getPaymentDonationCallbackUrl, getPaymentWebCallbackUrl } from '@/lib/donation/payment-callback-url';
+import { savePendingDonationThankYou } from '@/lib/donation/pending-thank-you';
+import { savePendingPaymentCheckout } from '@/lib/donation/pending-payment-checkout';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
-import { openPaystackCheckout } from '@/lib/utils/open-paystack-checkout';
+import { openPaymentCheckout } from '@/lib/utils/open-payment-checkout';
 import { withUnauthorizedRecovery } from '@/lib/auth/session-expired';
 import { getAccessToken } from '@/lib/auth/access-token';
 import { digitsOnly, formatAmountInput } from '@/lib/money/input-format';
@@ -253,13 +251,13 @@ export default function RequestDetailScreen() {
     }
 
     setDonationSubmitting(true);
-    setDonationProgressMessage('Opening secure Paystack checkout...');
+    setDonationProgressMessage('Opening secure payment...');
     const effectiveShowName = anonymousModeEnabled ? false : showName;
     try {
       const callbackUrl =
         Platform.OS === 'web'
-          ? getPaystackWebCallbackUrl()
-          : getPaystackDonationCallbackUrl();
+          ? getPaymentWebCallbackUrl()
+          : getPaymentDonationCallbackUrl();
       const result = await withUnauthorizedRecovery(signOut, (token) =>
         initializeDonation(token, {
           begId: id,
@@ -282,73 +280,31 @@ export default function RequestDetailScreen() {
               showRecipientName: effectiveShowName,
             });
           } catch {
-            /* still open Paystack — storage must not block checkout */
+            /* still open checkout — storage must not block payment */
           }
         }
 
         if (Platform.OS === 'web') {
-          await openPaystackCheckout(result.paymentUrl, {
+          await openPaymentCheckout(result.paymentUrl, {
             redirectUrl: callbackUrl,
             paymentReference: result.paymentReference,
           });
           return;
         }
 
-        const checkoutResult = await openPaystackCheckout(result.paymentUrl, {
+        // Native: one completion surface — callback opens checkout, verifies, and shows thank-you.
+        await savePendingPaymentCheckout({
+          reference: result.paymentReference,
+          paymentUrl: result.paymentUrl,
           redirectUrl: callbackUrl,
-          paymentReference: result.paymentReference,
-          skipNavigation: true,
-          onStatusChange: (status) => {
-            if (status === 'opening') {
-              setDonationProgressMessage('Opening secure Paystack checkout...');
-            } else if (status === 'redirected') {
-              setDonationProgressMessage('Paystack returned you to Plz. Confirming payment...');
-            } else if (status === 'confirming') {
-              setDonationProgressMessage('Confirming payment with Paystack...');
-            } else if (status === 'confirmed') {
-              setDonationProgressMessage('Payment confirmed. Preparing your thank-you note...');
-            }
+        });
+        router.replace({
+          pathname: '/payment/callback',
+          params: {
+            reference: result.paymentReference,
+            checkout: '1',
           },
         });
-
-        if (
-          checkoutResult.outcome === 'completed' &&
-          checkoutResult.verifiedResult?.success
-        ) {
-          const pending = await consumePendingDonationThankYouIfBegMatches(id);
-          if (pending) {
-            setDonationThankYou({
-              amount: pending.amount,
-              recipientName: pending.recipientName,
-              showRecipientName: pending.showRecipientName,
-              donationId: pending.donationId,
-            });
-          } else if (request) {
-            setDonationThankYou({
-              amount: rawAmount,
-              recipientName: request.name,
-              showRecipientName: effectiveShowName,
-              donationId: result.donationId,
-            });
-          }
-          void loadRequest();
-          void loadDonors();
-          return;
-        }
-
-        if (checkoutResult.outcome === 'cancelled') {
-          Alert.alert(
-            'Payment not confirmed yet',
-            'If you completed payment on Paystack, wait a moment and pull to refresh this request — your donation may still appear. Otherwise you can try again.',
-            [{ text: 'OK', onPress: () => void loadRequest() }]
-          );
-        } else {
-          Alert.alert(
-            'Payment pending',
-            'We could not confirm your payment yet. If you were charged, it may still process — check the request in a moment or contact support.',
-            [{ text: 'OK', onPress: () => void loadRequest() }]
-          );
-        }
         return;
       } else {
         if (request) {

@@ -9,7 +9,7 @@ export type NigerianBank = {
 };
 
 /**
- * GET /api/withdrawals/banks — Nigerian banks (Paystack).
+ * GET /api/withdrawals/banks — Nigerian banks.
  */
 export async function getWithdrawalBanks(): Promise<NigerianBank[]> {
   const res = await fetch(apiUrl('/api/withdrawals/banks'), {
@@ -44,7 +44,7 @@ export type ResolveBankAccountResult = {
 };
 
 /**
- * POST /api/withdrawals/resolve-account — Paystack resolve only (authenticated).
+ * POST /api/withdrawals/resolve-account — bank account name lookup (authenticated).
  */
 export async function resolveWithdrawalBankAccount(
   accessToken: string,
@@ -99,7 +99,7 @@ export type WithdrawalBankAccount = {
 };
 
 /**
- * POST /api/withdrawals/bank-accounts — verify via Paystack and save.
+ * POST /api/withdrawals/bank-accounts — verify and save bank account.
  */
 export async function addWithdrawalBankAccount(
   accessToken: string,
@@ -141,6 +141,62 @@ export async function addWithdrawalBankAccount(
   }
 
   return acc;
+}
+
+function normalizeBankAccountBody(body: {
+  accountNumber: string;
+  bankCode: string;
+}): { accountNumber: string; bankCode: string } {
+  return {
+    accountNumber: body.accountNumber.trim(),
+    bankCode: body.bankCode.trim(),
+  };
+}
+
+/** Match saved account by account number (backend uniqueness key). */
+export function findMatchingWithdrawalBankAccount(
+  accounts: WithdrawalBankAccount[],
+  body: { accountNumber: string; bankCode: string }
+): WithdrawalBankAccount | undefined {
+  const { accountNumber, bankCode } = normalizeBankAccountBody(body);
+  return accounts.find(
+    (a) =>
+      a.accountNumber.trim() === accountNumber &&
+      a.bankCode.trim() === bankCode
+  );
+}
+
+/**
+ * Return an existing saved account or create one after Flutterwave verify.
+ * Avoids duplicate-add errors when the user retries step 2.
+ */
+export async function ensureWithdrawalBankAccount(
+  accessToken: string,
+  body: { accountNumber: string; bankCode: string }
+): Promise<WithdrawalBankAccount> {
+  const normalized = normalizeBankAccountBody(body);
+  const existingAccounts = await getWithdrawalBankAccounts(accessToken);
+  const alreadySaved = findMatchingWithdrawalBankAccount(
+    existingAccounts,
+    normalized
+  );
+  if (alreadySaved) {
+    return alreadySaved;
+  }
+
+  try {
+    return await addWithdrawalBankAccount(accessToken, normalized);
+  } catch (e) {
+    if (
+      e instanceof PlizApiError &&
+      e.message.toLowerCase().includes('already added')
+    ) {
+      const refreshed = await getWithdrawalBankAccounts(accessToken);
+      const match = findMatchingWithdrawalBankAccount(refreshed, normalized);
+      if (match) return match;
+    }
+    throw e;
+  }
 }
 
 /**

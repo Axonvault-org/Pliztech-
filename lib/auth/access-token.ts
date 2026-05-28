@@ -6,7 +6,7 @@ const ACCESS_KEY = 'pliz_access_token';
 const REFRESH_KEY = 'pliz_refresh_token';
 
 /**
- * Web: access token in memory + sessionStorage so a full reload (or Paystack return URL) still has
+ * Web: access token in memory + sessionStorage so a full reload (or payment return URL) still has
  * a Bearer until refresh runs. Refresh token stays in an httpOnly cookie from the API (not JS).
  * sessionStorage clears when the tab closes.
  */

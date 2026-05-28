@@ -15,7 +15,7 @@ function stashBegIdForActivityOverlay(begId: string): void {
 }
 
 /**
- * After Paystack checkout — always return to the request detail screen so donors
+ * After payment checkout — always return to the request detail screen so donors
  * see the request they supported (with viewer donation summary when logged in).
  */
 export function navigateToRequestDetailAfterDonation(begId: string): void {
@@ -37,7 +37,7 @@ export function navigateToRequestDetailAfterDonation(begId: string): void {
  * - **Activity** + past-request overlay when the beg is no longer active (funded, expired, cancelled…)
  * - **Request detail** when it is still active
  *
- * Used after Paystack `/payment/callback`, notification taps, etc.
+ * Used after `/payment/callback`, notification taps, etc.
  * Falls back to request detail if the beg cannot be loaded.
  *
  * **`ensureHomeBehindDetail`**: reset the tab stack to home, then push the destination so **Back**

@@ -1,7 +1,5 @@
-import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
+import { useCallback } from 'react';
 
 import { HomeHeader } from '@/components/home/HomeHeader';
 import { ImpactCard } from '@/components/home/ImpactCard';
@@ -10,151 +8,72 @@ import { RecentContributions } from '@/components/home/RecentContributions';
 import { TrendingRequests } from '@/components/home/TrendingRequests';
 import {
   avatarColorFromSeed,
-  CURRENT_USER_FOCUS_REFETCH_STALE_MS,
   displayFirstName,
   displayMemberRoleLabel,
   displayProfileHeader,
   useCurrentUser,
 } from '@/contexts/CurrentUserContext';
 
-import { getTrendingBegs } from '@/lib/api/beg';
-import { getMyDonations, myDonationToRecentContribution } from '@/lib/api/donations';
-import { getProfilePicture, type ProfilePicture } from '@/lib/api/profile-picture';
 import { PlizApiError } from '@/lib/api/types';
-import { getAccessToken } from '@/lib/auth/access-token';
-import {
-  isUnauthorizedSessionError,
-  recoverFromUnauthorized,
-} from '@/lib/auth/session-expired';
-import type { RecentContribution, TrendingRequest } from '@/lib/types/home';
+import type { TrendingRequest } from '@/lib/types/home';
 
 import { useUnreadNotificationCount } from '@/hooks/useUnreadNotificationCount';
+import {
+  useProfilePictureQuery,
+  useRecentContributionsQuery,
+  useTrendingBegsQuery,
+} from '@/hooks/queries/useHomeQueries';
+import { ScrollView, RefreshControl, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const RECENT_CONTRIBUTIONS_HOME_LIMIT = 5;
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
-  const { user, isLoading, refreshUser, signOut } = useCurrentUser();
-  const lastHomeRefreshRef = useRef<number>(0);
-  const [trending, setTrending] = useState<TrendingRequest[]>([]);
-  const [trendingLoading, setTrendingLoading] = useState(true);
-  const [trendingError, setTrendingError] = useState<string | null>(null);
-  const [recentContributions, setRecentContributions] = useState<RecentContribution[]>([]);
-  const [recentLoading, setRecentLoading] = useState(false);
-  const [profilePicture, setProfilePicture] = useState<ProfilePicture | null>(null);
-  const { unreadCount } = useUnreadNotificationCount();
+  const { user, isLoading, signOut, refreshUser } = useCurrentUser();
+  const { unreadCount, refreshUnreadCount } = useUnreadNotificationCount();
 
-  const loadTrending = useCallback(async (opts?: { background?: boolean }) => {
-    const background = opts?.background ?? false;
-    if (!background) {
-      setTrendingLoading(true);
-    }
-    setTrendingError(null);
-    try {
-      const items = await getTrendingBegs(5);
-      setTrending(items);
-    } catch (e) {
-      if (!background) {
-        const msg =
-          e instanceof PlizApiError
-            ? e.message
-            : e instanceof Error
-              ? e.message
-              : 'Could not load trending requests';
-        setTrendingError(msg);
-        setTrending([]);
-      }
-    } finally {
-      if (!background) {
-        setTrendingLoading(false);
-      }
-    }
-  }, []);
+  const trendingQuery = useTrendingBegsQuery(5);
+  const recentQuery = useRecentContributionsQuery(RECENT_CONTRIBUTIONS_HOME_LIMIT, signOut);
+  const profilePictureQuery = useProfilePictureQuery(signOut);
 
-  const loadRecentContributions = useCallback(
-    async (opts?: { background?: boolean; _retryAfterRefresh?: boolean }) => {
-      const background = opts?.background ?? false;
-      const retryAfterRefresh = opts?._retryAfterRefresh ?? false;
-      if (!background) {
-        setRecentLoading(true);
-      }
-      try {
-        const token = await getAccessToken();
-        if (!token) {
-          setRecentContributions([]);
-          return;
-        }
-        const result = await getMyDonations(token, {
-          page: 1,
-          limit: RECENT_CONTRIBUTIONS_HOME_LIMIT,
-        });
-        setRecentContributions(result.donations.map(myDonationToRecentContribution));
-      } catch (e) {
-        if (isUnauthorizedSessionError(e) && !retryAfterRefresh) {
-          const recovered = await recoverFromUnauthorized(signOut);
-          if (recovered) {
-            await loadRecentContributions({
-              background,
-              _retryAfterRefresh: true,
-            });
-            return;
-          }
-          return;
-        }
-        if (!background) {
-          setRecentContributions([]);
-        }
-      } finally {
-        if (!background) {
-          setRecentLoading(false);
-        }
-      }
-    },
-    [signOut]
-  );
+  const trending: TrendingRequest[] = trendingQuery.data ?? [];
+  const trendingLoading = trendingQuery.isLoading;
+  const recentContributions = recentQuery.data ?? [];
+  const recentLoading = recentQuery.isLoading;
+  const profilePicture = profilePictureQuery.data ?? null;
 
-  const loadProfilePicture = useCallback(
-    async (retryAfterRefresh = false) => {
-      try {
-        const token = await getAccessToken();
-        if (!token) {
-          setProfilePicture(null);
-          return;
-        }
-        setProfilePicture(await getProfilePicture(token));
-      } catch (e) {
-        if (isUnauthorizedSessionError(e) && !retryAfterRefresh) {
-          const recovered = await recoverFromUnauthorized(signOut);
-          if (recovered) {
-            await loadProfilePicture(true);
-          }
-        }
-      }
-    },
-    [signOut]
-  );
+  const refreshing =
+    !trendingLoading &&
+    !recentLoading &&
+    (trendingQuery.isFetching ||
+      recentQuery.isFetching ||
+      profilePictureQuery.isFetching);
 
-  useEffect(() => {
-    void loadTrending();
-  }, [loadTrending]);
+  const onRefresh = useCallback(() => {
+    void Promise.all([
+      trendingQuery.refetch(),
+      recentQuery.refetch(),
+      profilePictureQuery.refetch(),
+      refreshUser(),
+      refreshUnreadCount(),
+    ]);
+  }, [
+    trendingQuery,
+    recentQuery,
+    profilePictureQuery,
+    refreshUser,
+    refreshUnreadCount,
+  ]);
 
-  useEffect(() => {
-    void loadRecentContributions();
-  }, [loadRecentContributions]);
-
-  useFocusEffect(
-    useCallback(() => {
-      const now = Date.now();
-      if (now - lastHomeRefreshRef.current < CURRENT_USER_FOCUS_REFETCH_STALE_MS) {
-        return;
-      }
-      lastHomeRefreshRef.current = now;
-      void refreshUser();
-      void loadProfilePicture();
-      void loadTrending({ background: true });
-      void loadRecentContributions({ background: true });
-    }, [refreshUser, loadProfilePicture, loadTrending, loadRecentContributions])
-  );
+  const trendingError =
+    trendingQuery.error instanceof PlizApiError
+      ? trendingQuery.error.message
+      : trendingQuery.error instanceof Error
+        ? trendingQuery.error.message
+        : trendingQuery.isError
+          ? 'Could not load trending requests'
+          : null;
 
   const firstName = isLoading && !user ? '…' : displayFirstName(user) || 'Guest';
   const role = user ? displayMemberRoleLabel(user) : isLoading ? '…' : 'Member';
@@ -210,6 +129,9 @@ export default function HomeScreen() {
         contentContainerStyle={[styles.content, { paddingHorizontal: 24 }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#2E8BEA" />
+        }
       >
         <HomeHeader
           firstName={firstName}
@@ -235,7 +157,7 @@ export default function HomeScreen() {
           requests={trending}
           loading={trendingLoading}
           errorMessage={trendingError}
-          onRetry={() => void loadTrending()}
+          onRetry={() => void trendingQuery.refetch()}
           onSeeAll={onSeeAll}
         />
         <RecentContributions
