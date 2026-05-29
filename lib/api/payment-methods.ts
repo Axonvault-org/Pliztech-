@@ -142,7 +142,7 @@ export async function deleteSavedCard(accessToken: string, cardId: string): Prom
   }
 }
 
-/** Display label for Paystack `card_type` (e.g. visa → Visa). */
+/** Display label for card network (e.g. visa → Visa). */
 export function formatCardBrandLabel(cardType: string): string {
   const t = cardType?.trim().toLowerCase() ?? '';
   if (!t) return 'Card';

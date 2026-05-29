@@ -23,7 +23,7 @@ export type InitializeDonationBody = {
   /** Optional note to the recipient (if API supports it). */
   message?: string;
   savedCardId?: string;
-  /** Native app deep link — Paystack redirects here instead of the web app. */
+  /** Native app deep link — payment provider redirects here instead of the web app. */
   callbackUrl?: string;
 };
 
@@ -56,10 +56,12 @@ export type InitializeDonationResult =
   | InitializeDonationCheckoutResult
   | InitializeDonationSavedCardResult;
 
-/** GET /api/donations/verify — confirm payment after Paystack redirect to /payment/callback */
+/** GET /api/donations/verify — confirm payment after Flutterwave redirect to /payment/callback */
 export type VerifyDonationApiResult = {
   success: boolean;
   message: string;
+  /** HTTP 429 — caller should back off instead of tight polling. */
+  rateLimited?: boolean;
   data?: {
     begId?: string;
     amount?: number;
@@ -69,19 +71,23 @@ export type VerifyDonationApiResult = {
 };
 
 /**
- * Calls backend to verify a Paystack transaction by reference (server runs Paystack verify + donation processing).
- * No auth header — route must be public on the API.
+ * Calls backend to verify a Flutterwave transaction by reference (server verifies + processes donation).
+ * No auth header — route is public on the API.
  */
 export async function verifyDonationByReference(
-  reference: string
+  reference: string,
+  options?: { transactionId?: string }
 ): Promise<VerifyDonationApiResult> {
   const trimmed = reference.trim();
-  if (!trimmed) {
+  const transactionId = options?.transactionId?.trim() ?? '';
+
+  if (!trimmed && !transactionId) {
     return { success: false, message: 'Missing payment reference.' };
   }
 
   const params = new URLSearchParams();
-  params.set('reference', trimmed);
+  if (transactionId) params.set('transaction_id', transactionId);
+  if (trimmed) params.set('reference', trimmed);
 
   let res: Response;
   try {
@@ -110,11 +116,15 @@ export async function verifyDonationByReference(
 
   const body = json as VerifyDonationApiResult;
   if (typeof body.success === 'boolean' && typeof body.message === 'string') {
-    return body;
+    return {
+      ...body,
+      rateLimited: res.status === 429,
+    };
   }
 
   return {
     success: false,
+    rateLimited: res.status === 429,
     message: body.message ?? `Request failed (${res.status})`,
     data: body.data,
   };
@@ -125,22 +135,27 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Paystack's success screen can appear before verify succeeds — retry for a short window.
+ * Payment success screen can appear before verify succeeds — retry for a short window.
  */
 export async function waitForDonationVerification(
   reference: string,
-  options?: { maxAttempts?: number; intervalMs?: number }
+  options?: { maxAttempts?: number; intervalMs?: number; transactionId?: string }
 ): Promise<VerifyDonationApiResult | null> {
-  const maxAttempts = options?.maxAttempts ?? 18;
-  const intervalMs = options?.intervalMs ?? 1000;
+  const maxAttempts = options?.maxAttempts ?? 20;
+  const intervalMs = options?.intervalMs ?? 2500;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const result = await verifyDonationByReference(reference);
+    const result = await verifyDonationByReference(reference, {
+      transactionId: options?.transactionId,
+    });
     if (result.success) {
       return result;
     }
     if (attempt < maxAttempts - 1) {
-      await sleep(intervalMs);
+      const backoffMs = result.rateLimited
+        ? Math.min(intervalMs * (attempt + 2), 15000)
+        : intervalMs;
+      await sleep(backoffMs);
     }
   }
 
@@ -148,7 +163,7 @@ export async function waitForDonationVerification(
 }
 
 /**
- * POST /api/donations/initialize — Paystack checkout URL or saved-card charge.
+ * POST /api/donations/initialize — Flutterwave checkout URL or saved-card charge.
  */
 export async function initializeDonation(
   accessToken: string,
@@ -175,7 +190,10 @@ export async function initializeDonation(
           : {}),
         ...(body.savedCardId ? { savedCardId: body.savedCardId } : {}),
         ...(body.callbackUrl?.trim()
-          ? { callbackUrl: body.callbackUrl.trim() }
+          ? {
+              callbackUrl: body.callbackUrl.trim(),
+              redirectUrl: body.callbackUrl.trim(),
+            }
           : {}),
       }),
     });
@@ -256,6 +274,7 @@ type ApiDonationInitializeData = {
   amount: number;
   donation_id?: string;
   donationId?: string;
+  tx_ref?: string;
   payment_reference?: string;
   paymentReference?: string;
   reference?: string;
@@ -277,7 +296,11 @@ function pickCheckoutUrl(d: ApiDonationInitializeData): string | undefined {
 
 function pickPaymentReference(d: ApiDonationInitializeData): string {
   const ref =
-    d.payment_reference ?? d.paymentReference ?? d.reference ?? '';
+    d.payment_reference ??
+    d.paymentReference ??
+    d.tx_ref ??
+    d.reference ??
+    '';
   return typeof ref === 'string' ? ref : '';
 }
 

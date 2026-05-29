@@ -29,7 +29,7 @@ import { VerifiedAccountNameCard } from '@/components/withdraw/VerifiedAccountNa
 import { WithdrawFundsShieldNotice } from '@/components/withdraw/WithdrawFundsShieldNotice';
 import { WithdrawProgressSteps } from '@/components/withdraw/WithdrawProgressSteps';
 import {
-  addWithdrawalBankAccount,
+  ensureWithdrawalBankAccount,
   getWithdrawalBankAccounts,
   getWithdrawalBanks,
   resolveWithdrawalBankAccount,
@@ -514,7 +514,7 @@ export default function WithdrawFundsScreen() {
 
   const accountDigits = accountNumber.replace(/\D/g, '').slice(0, 10);
 
-  /** Debounced Paystack resolve when bank + 10-digit account are set */
+  /** Debounced account resolve when bank + 10-digit account are set */
   useEffect(() => {
     if (step !== 2 || !selectedBank || accountDigits.length !== 10) {
       setResolvedAccountName(null);
@@ -576,7 +576,7 @@ export default function WithdrawFundsScreen() {
         return;
       }
       const digits = accountNumber.replace(/\D/g, '').slice(0, 10);
-      const created = await addWithdrawalBankAccount(token, {
+      const created = await ensureWithdrawalBankAccount(token, {
         accountNumber: digits,
         bankCode: selectedBank.code,
       });

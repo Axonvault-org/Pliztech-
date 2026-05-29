@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { router } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, StyleSheet, View } from 'react-native';
 
 import { Text } from '@/components/Text';
@@ -13,60 +13,27 @@ import { ProfileSummaryCard } from '@/components/profile/ProfileSummaryCard';
 import { Screen } from '@/components/Screen';
 import {
   avatarColorFromSeed,
-  CURRENT_USER_FOCUS_REFETCH_STALE_MS,
   displayMemberRoleLabel,
   displayProfileHeader,
   initialsFromDisplayName,
   isDocumentVerified,
   useCurrentUser,
 } from '@/contexts/CurrentUserContext';
-import { getProfilePicture, type ProfilePicture } from '@/lib/api/profile-picture';
 import { updateProfile } from '@/lib/api/profile';
 import { getAccessToken } from '@/lib/auth/access-token';
 import {
   isUnauthorizedSessionError,
   recoverFromUnauthorized,
 } from '@/lib/auth/session-expired';
+import { useProfilePictureQuery } from '@/hooks/queries/useHomeQueries';
 
 export default function ProfileScreen() {
   const { user, isLoading, refreshUser, signOut } = useCurrentUser();
   const [anonToggling, setAnonToggling] = useState(false);
-  const lastRefreshRef = useRef<number>(0);
+  const profilePictureQuery = useProfilePictureQuery(signOut);
 
   const [anonymousMode, setAnonymousMode] = useState(false);
-  const [profilePicture, setProfilePicture] = useState<ProfilePicture | null>(null);
-
-  const loadProfilePicture = useCallback(
-    async (retryAfterRefresh = false) => {
-      try {
-        const token = await getAccessToken();
-        if (!token) {
-          setProfilePicture(null);
-          return;
-        }
-        setProfilePicture(await getProfilePicture(token));
-      } catch (e) {
-        if (isUnauthorizedSessionError(e) && !retryAfterRefresh) {
-          const recovered = await recoverFromUnauthorized(signOut);
-          if (recovered) {
-            await loadProfilePicture(true);
-          }
-        }
-      }
-    },
-    [signOut]
-  );
-
-  useFocusEffect(
-    useCallback(() => {
-      const now = Date.now();
-      if (now - lastRefreshRef.current >= CURRENT_USER_FOCUS_REFETCH_STALE_MS) {
-        lastRefreshRef.current = now;
-        void refreshUser();
-      }
-      void loadProfilePicture();
-    }, [refreshUser, loadProfilePicture])
-  );
+  const profilePicture = profilePictureQuery.data ?? null;
 
   useEffect(() => {
     setAnonymousMode(user?.profile?.isAnonymous ?? false);

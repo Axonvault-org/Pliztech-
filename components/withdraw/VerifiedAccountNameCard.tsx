@@ -7,7 +7,7 @@ export type VerifiedAccountNameCardProps = {
 };
 
 /**
- * Shown after Paystack resolve on the Enter Bank Details step (Figma).
+ * Shown after bank account resolve on the Enter Bank Details step (Figma).
  */
 export function VerifiedAccountNameCard({ accountName }: VerifiedAccountNameCardProps) {
   return (

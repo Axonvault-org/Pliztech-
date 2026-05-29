@@ -18,21 +18,17 @@ import { CTAButton } from '@/components/CTAButton';
 import { KycRejectionBanner } from '@/components/kyc/KycRejectionBanner';
 import { Screen } from '@/components/Screen';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
-import { KYC_REQUIRE_FACE_LIVENESS } from '@/constants/kyc-config';
-import { useKycImagePicker } from '@/hooks/useKycImagePicker';
 import {
   getKycStatus,
   resetKycAfterRejection,
   resendKycPhoneOtp,
   sendKycPhoneOtp,
-  verifyKycFaceLiveness,
   verifyKycPhoneOtp,
-  type KycVerificationType,
+  type KycPhoneOtpChannel,
   type KycStatusPayload,
 } from '@/lib/api/kyc';
 import { formatPlizApiErrorForUser } from '@/lib/api/types';
 import { getAccessToken } from '@/lib/auth/access-token';
-import { kycImageToBase64 } from '@/lib/kyc/helpers';
 import { submitAndWaitForKycResult } from '@/lib/kyc/submit-flow';
 import {
   isUnauthorizedSessionError,
@@ -42,31 +38,15 @@ import {
 
 const RESEND_COOLDOWN_SEC = 60;
 
-const VERIFICATION_METHODS: {
-  type: KycVerificationType;
-  title: string;
-  body: string;
-  duration: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  iconBg: string;
-}[] = [
-  {
-    type: 'nin',
-    title: 'National ID (NIN)',
-    body: 'Verify with your 11-digit NIN — matched against the national registry',
-    duration: '~ 3 minutes',
-    icon: 'id-card-outline',
-    iconBg: '#A93BC4',
-  },
-  {
-    type: 'passport',
-    title: 'International Passport',
-    body: 'Verify with your passport — selfie matched to your passport photo',
-    duration: '~ 4 minutes',
-    icon: 'document-text-outline',
-    iconBg: '#2D6CDF',
-  },
-];
+function otpChannelLabel(channel: KycPhoneOtpChannel): string {
+  return channel === 'whatsapp' ? 'WhatsApp' : 'text SMS';
+}
+
+function otpDeliveryHint(channel: KycPhoneOtpChannel): string {
+  return channel === 'whatsapp'
+    ? 'If the message does not arrive, try text SMS or check your number in Personal Information.'
+    : 'If the SMS does not arrive, try WhatsApp or check your number in Personal Information.';
+}
 
 function identityReviewInFlight(
   verification: KycStatusPayload['verification'] | undefined
@@ -85,15 +65,16 @@ function maskPhoneNumber(phone: string): string {
 
 export default function KycVerificationScreen() {
   const { refreshUser, signOut } = useCurrentUser();
-  const { pickSelfie, modal: imagePickerModal, picking } = useKycImagePicker();
 
   const [status, setStatus] = useState<KycStatusPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [otp, setOtp] = useState('');
-  const [otpBusy, setOtpBusy] = useState(false);
+  const [sendBusy, setSendBusy] = useState(false);
+  const [verifyBusy, setVerifyBusy] = useState(false);
   const [kycBusy, setKycBusy] = useState(false);
   const [resendSec, setResendSec] = useState(0);
   const [otpRequested, setOtpRequested] = useState(false);
+  const [otpChannel, setOtpChannel] = useState<KycPhoneOtpChannel>('sms');
 
   useEffect(() => {
     if (resendSec <= 0) return;
@@ -160,20 +141,12 @@ export default function KycVerificationScreen() {
     !identityReviewInFlight(verification) &&
     (verification?.status !== 'rejected' || verification?.canRetry === true);
 
-  const requiresSelfie =
-    verification?.verificationType === 'passport' && KYC_REQUIRE_FACE_LIVENESS;
-
-  const showFaceLiveness =
-    requiresSelfie &&
-    steps[2]?.completed === true &&
-    steps[3]?.completed !== true &&
-    !verification?.isVerified &&
-    !identityReviewInFlight(verification);
-
   const showFinalSubmit =
     !verification?.isVerified &&
     !identityReviewInFlight(verification) &&
-    (requiresSelfie ? steps[3]?.completed === true : steps[2]?.completed === true);
+    verification?.verificationType === 'nin' &&
+    verification?.documentVerified === true &&
+    verification?.status !== 'rejected';
 
   const handleUiPrimary = async () => {
     if (!ui) return;
@@ -196,13 +169,12 @@ export default function KycVerificationScreen() {
     }
 
     if (url === '/kyc/update') {
-      const token = await getAccessToken();
-      if (!token) return;
       setKycBusy(true);
       try {
-        await resetKycAfterRejection(token);
+        await withUnauthorizedRecovery(signOut, (token) => resetKycAfterRejection(token));
         await loadStatus();
       } catch (e) {
+        if (isUnauthorizedSessionError(e)) return;
         const msg = formatPlizApiErrorForUser(e) || 'Could not restart verification.';
         Alert.alert('Could not restart', msg);
       } finally {
@@ -226,7 +198,7 @@ export default function KycVerificationScreen() {
       if (showDocumentForm) {
         Alert.alert(
           'Upload your document',
-          'Choose NIN or international passport below, fill the required details, and upload a clear image.'
+          'Choose NIN below, fill the required details, and upload a clear image of your NIN slip or card.'
         );
         return;
       }
@@ -235,17 +207,16 @@ export default function KycVerificationScreen() {
   };
 
   const onSendOtp = async () => {
-    setOtpBusy(true);
+    setSendBusy(true);
     try {
       const result = await withUnauthorizedRecovery(signOut, (token) =>
-        sendKycPhoneOtp(token)
+        sendKycPhoneOtp(token, otpChannel)
       );
       setOtpRequested(true);
       setResendSec(RESEND_COOLDOWN_SEC);
-      Alert.alert(
-        'Code sent',
-        result.message || 'Enter the 6-digit code we sent to your phone.'
-      );
+      if (result.channel) {
+        setOtpChannel(result.channel);
+      }
       void loadStatus(false, { silent: true });
     } catch (e) {
       if (isUnauthorizedSessionError(e)) {
@@ -254,20 +225,22 @@ export default function KycVerificationScreen() {
       const msg = formatPlizApiErrorForUser(e) || 'Could not send code.';
       Alert.alert('Could not send', msg);
     } finally {
-      setOtpBusy(false);
+      setSendBusy(false);
     }
   };
 
   const onResendOtp = async () => {
     if (resendSec > 0) return;
-    setOtpBusy(true);
+    setSendBusy(true);
     try {
       const result = await withUnauthorizedRecovery(signOut, (token) =>
-        resendKycPhoneOtp(token)
+        resendKycPhoneOtp(token, otpChannel)
       );
       setOtpRequested(true);
       setResendSec(RESEND_COOLDOWN_SEC);
-      Alert.alert('Code sent', result.message || 'A new code is on its way.');
+      if (result.channel) {
+        setOtpChannel(result.channel);
+      }
       void loadStatus(false, { silent: true });
     } catch (e) {
       if (isUnauthorizedSessionError(e)) {
@@ -276,24 +249,24 @@ export default function KycVerificationScreen() {
       const msg = formatPlizApiErrorForUser(e) || 'Could not resend.';
       Alert.alert('Could not resend', msg);
     } finally {
-      setOtpBusy(false);
+      setSendBusy(false);
     }
   };
 
   const onVerifyOtp = async () => {
     const code = otp.replace(/\D/g, '');
     if (code.length !== 6) {
-      Alert.alert('Invalid code', 'Enter the 6-digit code from SMS.');
+      Alert.alert('Invalid code', 'Enter the 6-digit code we sent you.');
       return;
     }
-    setOtpBusy(true);
+    setVerifyBusy(true);
     try {
       await withUnauthorizedRecovery(signOut, (token) => verifyKycPhoneOtp(token, code));
       setOtp('');
       setOtpRequested(false);
       await loadStatus(false, { silent: true });
       await refreshUser();
-      Alert.alert('Phone verified', 'You can now verify your identity with NIN or international passport.');
+      Alert.alert('Phone verified', 'You can now verify your identity with your NIN.');
     } catch (e) {
       if (isUnauthorizedSessionError(e)) {
         return;
@@ -301,33 +274,7 @@ export default function KycVerificationScreen() {
       const msg = formatPlizApiErrorForUser(e) || 'Verification failed.';
       Alert.alert('Could not verify', msg);
     } finally {
-      setOtpBusy(false);
-    }
-  };
-
-  const onFaceLiveness = async () => {
-    if (picking) return;
-    const verificationType = verification?.verificationType;
-    const file = await pickSelfie();
-    if (!file) return;
-    setKycBusy(true);
-    try {
-      const imageBase64 = await kycImageToBase64(file);
-      await withUnauthorizedRecovery(signOut, (token) =>
-        verifyKycFaceLiveness(token, imageBase64)
-      );
-      await loadStatus();
-      Alert.alert(
-        'Selfie confirmed',
-        verificationType === 'passport'
-          ? 'Your selfie will be compared to your passport photo when you submit.'
-          : 'You can now submit your verification for review.'
-      );
-    } catch (e) {
-      const msg = formatPlizApiErrorForUser(e) || 'Face liveness failed.';
-      Alert.alert('Could not verify selfie', msg);
-    } finally {
-      setKycBusy(false);
+      setVerifyBusy(false);
     }
   };
 
@@ -395,9 +342,60 @@ export default function KycVerificationScreen() {
                     ? `We will send a 6-digit code to ${maskPhoneNumber(status.phoneNumber)}.`
                     : 'We send a one-time code to the phone number on your profile.'}
                 </Text>
-                <Text style={styles.pageHint}>
-                  If the SMS does not arrive, check your number is correct in Personal Information.
-                </Text>
+
+                <Text style={styles.fieldLabel}>How should we send your code?</Text>
+                <View style={styles.channelRow}>
+                  <Pressable
+                    style={[
+                      styles.channelOption,
+                      otpChannel === 'sms' && styles.channelOptionSelected,
+                    ]}
+                    onPress={() => setOtpChannel('sms')}
+                    disabled={sendBusy || verifyBusy}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: otpChannel === 'sms' }}
+                  >
+                    <Ionicons
+                      name="chatbox-ellipses-outline"
+                      size={20}
+                      color={otpChannel === 'sms' ? '#2E8BEA' : '#6B7280'}
+                    />
+                    <Text
+                      style={[
+                        styles.channelOptionLabel,
+                        otpChannel === 'sms' && styles.channelOptionLabelSelected,
+                      ]}
+                    >
+                      Text SMS
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    style={[
+                      styles.channelOption,
+                      otpChannel === 'whatsapp' && styles.channelOptionSelected,
+                    ]}
+                    onPress={() => setOtpChannel('whatsapp')}
+                    disabled={sendBusy || verifyBusy}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: otpChannel === 'whatsapp' }}
+                  >
+                    <Ionicons
+                      name="logo-whatsapp"
+                      size={20}
+                      color={otpChannel === 'whatsapp' ? '#16A34A' : '#6B7280'}
+                    />
+                    <Text
+                      style={[
+                        styles.channelOptionLabel,
+                        otpChannel === 'whatsapp' && styles.channelOptionLabelSelected,
+                      ]}
+                    >
+                      WhatsApp
+                    </Text>
+                  </Pressable>
+                </View>
+
+                <Text style={styles.pageHint}>{otpDeliveryHint(otpChannel)}</Text>
 
                 {verification?.phoneVerified ? (
                   <View style={styles.phoneVerifiedCard}>
@@ -407,51 +405,57 @@ export default function KycVerificationScreen() {
                     <View style={styles.phoneVerifiedCopy}>
                       <Text style={styles.phoneVerifiedTitle}>Phone number verified</Text>
                       <Text style={styles.phoneVerifiedText}>
-                        You can continue with NIN or international passport verification.
+                        You can continue with NIN verification.
                       </Text>
                     </View>
                   </View>
                 ) : null}
 
-                <View style={styles.ctaStack}>
-                  <CTAButton
-                    label={otpBusy ? 'Sending…' : 'Send code'}
-                    onPress={() => void onSendOtp()}
-                    variant="gradient"
-                    disabled={otpBusy}
-                    accessibilityLabel="Send verification code via SMS"
-                  />
-                </View>
-
                 <Text style={styles.fieldLabel}>Verification code</Text>
                 <TextInput
                   style={styles.fieldInput}
-                  placeholder="Enter 6-digit code"
+                  placeholder={otpRequested ? 'Enter 6-digit code' : 'Request OTP to receive your code'}
                   placeholderTextColor="#9CA3AF"
                   keyboardType="number-pad"
                   maxLength={6}
                   value={otp}
                   onChangeText={(t) => setOtp(t.replace(/\D/g, ''))}
-                  editable={!otpBusy}
+                  editable={!verifyBusy && !sendBusy && otpRequested}
                 />
 
                 <View style={styles.ctaStack}>
-                  <CTAButton
-                    label={otpBusy ? 'Verifying…' : 'Verify code'}
-                    onPress={() => void onVerifyOtp()}
-                    variant="gradient"
-                    disabled={otpBusy || otp.length !== 6}
-                    accessibilityLabel="Verify code"
-                  />
-                  {otpRequested ? (
+                  {!otpRequested ? (
                     <CTAButton
-                      label={resendSec > 0 ? `Resend code (${resendSec}s)` : 'Resend code'}
-                      onPress={() => void onResendOtp()}
-                      variant="transparent"
-                      disabled={otpBusy || resendSec > 0}
-                      accessibilityLabel="Resend code"
+                      label={sendBusy ? 'Sending…' : 'Request OTP'}
+                      onPress={() => void onSendOtp()}
+                      variant="gradient"
+                      disabled={sendBusy}
+                      accessibilityLabel={`Request OTP via ${otpChannelLabel(otpChannel)}`}
                     />
-                  ) : null}
+                  ) : (
+                    <>
+                      <CTAButton
+                        label={verifyBusy ? 'Verifying…' : 'Verify code'}
+                        onPress={() => void onVerifyOtp()}
+                        variant="gradient"
+                        disabled={verifyBusy || sendBusy || otp.length !== 6}
+                        accessibilityLabel="Verify code"
+                      />
+                      <CTAButton
+                        label={
+                          sendBusy
+                            ? 'Sending…'
+                            : resendSec > 0
+                              ? `Resend OTP (${resendSec}s)`
+                              : 'Resend OTP'
+                        }
+                        onPress={() => void onResendOtp()}
+                        variant="transparent"
+                        disabled={verifyBusy || sendBusy || resendSec > 0}
+                        accessibilityLabel={`Resend OTP via ${otpChannelLabel(otpChannel)}`}
+                      />
+                    </>
+                  )}
                 </View>
               </View>
             ) : null}
@@ -466,50 +470,40 @@ export default function KycVerificationScreen() {
                     <View style={styles.phoneVerifiedCopy}>
                       <Text style={styles.phoneVerifiedTitle}>Phone number verified</Text>
                       <Text style={styles.phoneVerifiedText}>
-                        Choose NIN or international passport to complete identity verification.
+                        Choose NIN to complete identity verification.
                       </Text>
                     </View>
                   </View>
                 ) : null}
 
                 <View style={styles.methodHeader}>
-                  <Text style={styles.methodTitle}>Choose a verification method</Text>
+                  <Text style={styles.methodTitle}>Verify with NIN</Text>
                   <Text style={styles.methodSubtitle}>
                     Verified accounts unlock higher limits and earn trust badges
                   </Text>
                 </View>
 
-                <View style={styles.methodList}>
-                  {VERIFICATION_METHODS.map((method) => {
-                    return (
-                      <Pressable
-                        key={method.type}
-                        style={styles.methodCard}
-                        onPress={() =>
-                          router.push(
-                            method.type === 'nin'
-                              ? '/(tabs)/kyc-nin-verification'
-                              : '/(tabs)/kyc-passport-verification'
-                          )
-                        }
-                        accessibilityRole="button"
-                      >
-                        <View style={[styles.methodIconBox, { backgroundColor: method.iconBg }]}>
-                          <Ionicons name={method.icon} size={28} color="#FFFFFF" />
-                        </View>
-                        <View style={styles.methodCopy}>
-                          <Text style={styles.methodCardTitle}>{method.title}</Text>
-                          <Text style={styles.methodCardBody}>{method.body}</Text>
-                          <View style={styles.durationRow}>
-                            <Ionicons name="time-outline" size={11} color="#6B7280" />
-                            <Text style={styles.durationText}>{method.duration}</Text>
-                          </View>
-                        </View>
-                        <Ionicons name="chevron-forward" size={22} color="#6B7280" />
-                      </Pressable>
-                    );
-                  })}
-                </View>
+                <Pressable
+                  style={styles.methodCard}
+                  onPress={() => router.push('/(tabs)/kyc-nin-verification')}
+                  accessibilityRole="button"
+                >
+                  <View style={[styles.methodIconBox, { backgroundColor: '#A93BC4' }]}>
+                    <Ionicons name="id-card-outline" size={28} color="#FFFFFF" />
+                  </View>
+                  <View style={styles.methodCopy}>
+                    <Text style={styles.methodCardTitle}>National ID (NIN)</Text>
+                    <Text style={styles.methodCardBody}>
+                      Verify with your 11-digit NIN or Virtual NIN — matched against the national
+                      registry
+                    </Text>
+                    <View style={styles.durationRow}>
+                      <Ionicons name="time-outline" size={11} color="#6B7280" />
+                      <Text style={styles.durationText}>~ 3 minutes</Text>
+                    </View>
+                  </View>
+                  <Ionicons name="chevron-forward" size={22} color="#6B7280" />
+                </Pressable>
 
                 <View style={styles.securityNotice}>
                   <Ionicons name="information-circle-outline" size={16} color="#64748B" />
@@ -521,33 +515,12 @@ export default function KycVerificationScreen() {
               </>
             ) : null}
 
-            {showFaceLiveness ? (
-              <View style={styles.actionCard}>
-                <Text style={styles.actionTitle}>Take a selfie</Text>
-                <Text style={styles.actionHint}>
-                  {verification?.verificationType === 'passport'
-                    ? 'Take a clear selfie in good lighting. It will be matched to the photo on your passport when you submit.'
-                    : 'Take a clear selfie in good lighting so we can confirm you are the document holder.'}
-                </Text>
-                <View style={styles.ctaWrap}>
-                  <CTAButton
-                    label={kycBusy ? 'Confirming selfie…' : 'Take selfie'}
-                    onPress={() => void onFaceLiveness()}
-                    variant="gradient"
-                    disabled={kycBusy || picking}
-                    accessibilityLabel="Take selfie"
-                  />
-                </View>
-              </View>
-            ) : null}
-
             {showFinalSubmit ? (
               <View style={styles.actionCard}>
                 <Text style={styles.actionTitle}>Submit verification</Text>
                 <Text style={styles.actionHint}>
-                  {verification?.verificationType === 'passport'
-                    ? 'We will verify your passport with the government registry and match your selfie to your passport photo.'
-                    : 'We will verify your NIN with the government registry and confirm your name matches your profile.'}
+                  We will verify your NIN with the government registry and confirm your name matches
+                  your profile.
                 </Text>
                 <View style={styles.ctaWrap}>
                   <CTAButton
@@ -575,7 +548,6 @@ export default function KycVerificationScreen() {
         ) : null}
       </View>
     </Screen>
-    {imagePickerModal}
     </>
   );
 }
@@ -677,6 +649,35 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     color: '#98A2B3',
     marginBottom: 20,
+  },
+  channelRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 12,
+  },
+  channelOption: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    minHeight: 52,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+  },
+  channelOptionSelected: {
+    borderColor: '#2E8BEA',
+    backgroundColor: '#EFF6FF',
+  },
+  channelOptionLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  channelOptionLabelSelected: {
+    color: '#1D4ED8',
   },
   fieldLabel: {
     fontSize: 16,

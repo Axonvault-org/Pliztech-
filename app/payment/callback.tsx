@@ -8,11 +8,17 @@ import { Text } from '@/components/Text';
 import { verifyDonationByReference, waitForDonationVerification, type VerifyDonationApiResult } from '@/lib/api/donations';
 import { consumePendingDonationThankYouIfBegMatches } from '@/lib/donation/pending-thank-you';
 import {
-  clearPendingPaystackCheckout,
-  readPendingPaystackCheckout,
-} from '@/lib/donation/pending-paystack-checkout';
+  clearPendingPaymentCheckout,
+  readPendingPaymentCheckout,
+} from '@/lib/donation/pending-payment-checkout';
+import {
+  isPaymentCheckoutActive,
+  markPaymentCheckoutActive,
+  markPaymentCheckoutInactive,
+} from '@/lib/donation/payment-return-session';
 import { navigateToRequestDetailAfterDonation } from '@/lib/navigation/post-donation-navigation';
-import { openPaystackCheckout } from '@/lib/utils/open-paystack-checkout';
+import { openPaymentCheckout } from '@/lib/utils/open-payment-checkout';
+import { useInvalidateAppQueries } from '@/hooks/queries/useInvalidateAppQueries';
 
 type Phase = 'checkout' | 'loading' | 'success' | 'error';
 
@@ -28,22 +34,30 @@ function isTruthyFlag(value: string | string[] | undefined): boolean {
 }
 
 /**
- * Paystack donation return flow:
- * - Mobile: request screen navigates here with `checkout=1`, opens Paystack, then verifies.
- * - Web: Paystack redirects here with `reference` / `trxref` query params.
+ * Flutterwave / hosted checkout donation return flow:
+ * - Mobile: request screen navigates here with `checkout=1`, opens checkout, then verifies.
+ * - Web: gateway redirects here with `tx_ref`, `reference`, or `trxref` query params.
  */
 export default function PaymentCallbackScreen() {
   const params = useLocalSearchParams<{
     reference?: string;
     trxref?: string;
+    tx_ref?: string;
+    transaction_id?: string;
     checkout?: string;
   }>();
 
   const reference = useMemo(() => {
+    const txRef = firstQuery(params.tx_ref);
     const ref = firstQuery(params.reference);
     const trx = firstQuery(params.trxref);
-    return ref || trx;
-  }, [params.reference, params.trxref]);
+    return txRef || ref || trx;
+  }, [params.tx_ref, params.reference, params.trxref]);
+
+  const transactionId = useMemo(
+    () => firstQuery(params.transaction_id),
+    [params.transaction_id]
+  );
 
   const shouldOpenCheckout = isTruthyFlag(params.checkout);
 
@@ -59,10 +73,17 @@ export default function PaymentCallbackScreen() {
     donationId?: string;
   } | null>(null);
 
-  const checkoutStarted = useRef(false);
+  const verifyHandledRef = useRef(false);
+  const checkoutFlowRef = useRef<Promise<void> | null>(null);
+  const invalidateAppQueries = useInvalidateAppQueries();
 
   const applyVerifyResult = useCallback(async (result: VerifyDonationApiResult) => {
+    if (verifyHandledRef.current) return;
+    verifyHandledRef.current = true;
+    if (reference) markPaymentCheckoutInactive(reference);
+
     if (result.success) {
+      await invalidateAppQueries('donation');
       const verifiedBegId = result.data?.begId ?? null;
       setBegId(verifiedBegId);
       const pending = await consumePendingDonationThankYouIfBegMatches(verifiedBegId);
@@ -89,7 +110,7 @@ export default function PaymentCallbackScreen() {
           'We could not confirm this payment. If you were charged, contact support with your reference.'
       );
     }
-  }, []);
+  }, [invalidateAppQueries, reference]);
 
   const runVerify = useCallback(async () => {
     if (!reference) {
@@ -104,85 +125,114 @@ export default function PaymentCallbackScreen() {
     setMessage('Confirming your payment…');
 
     const result = await waitForDonationVerification(reference, {
-      maxAttempts: 12,
-      intervalMs: 1000,
+      maxAttempts: 20,
+      intervalMs: 2500,
+      transactionId,
     });
     if (result) {
       await applyVerifyResult(result);
       return;
     }
 
-    const lastTry = await verifyDonationByReference(reference);
+    const lastTry = await verifyDonationByReference(reference, { transactionId });
     await applyVerifyResult(lastTry);
-  }, [reference, applyVerifyResult]);
+  }, [reference, transactionId, applyVerifyResult]);
+
+  const completeCheckoutFlow = useCallback(async () => {
+    if (!reference || verifyHandledRef.current) return;
+
+    setPhase('checkout');
+    setMessage('Opening secure payment…');
+
+    const pending = await readPendingPaymentCheckout(reference);
+    if (!pending) {
+      if (transactionId || isPaymentCheckoutActive(reference)) {
+        await runVerify();
+        return;
+      }
+      setPhase('error');
+      setMessage('Payment session expired. Please go back and try again.');
+      return;
+    }
+
+    markPaymentCheckoutActive(reference);
+
+    const checkoutResult = await openPaymentCheckout(pending.paymentUrl, {
+      redirectUrl: pending.redirectUrl,
+      paymentReference: reference,
+      skipNavigation: true,
+      onStatusChange: (status) => {
+        if (status === 'redirected' || status === 'confirming' || status === 'confirmed') {
+          setPhase('loading');
+          setMessage('Confirming your payment…');
+        }
+      },
+    });
+
+    if (verifyHandledRef.current) return;
+
+    await clearPendingPaymentCheckout();
+
+    if (
+      checkoutResult.outcome === 'completed' &&
+      checkoutResult.verifiedResult?.success
+    ) {
+      await applyVerifyResult(checkoutResult.verifiedResult);
+      return;
+    }
+
+    if (checkoutResult.outcome === 'completed') {
+      await runVerify();
+      return;
+    }
+
+    const retried = await waitForDonationVerification(reference, {
+      maxAttempts: 8,
+      intervalMs: 2500,
+      transactionId,
+    });
+    if (retried) {
+      await applyVerifyResult(retried);
+      return;
+    }
+
+    setPhase('error');
+    setMessage(
+      'We could not confirm this payment yet. If checkout showed success, wait a moment and open the request again — or contact support with your reference.'
+    );
+  }, [reference, transactionId, applyVerifyResult, runVerify]);
 
   useEffect(() => {
-    if (!shouldOpenCheckout || !reference || checkoutStarted.current) return;
-    checkoutStarted.current = true;
-
-    let cancelled = false;
+    if (!reference || verifyHandledRef.current) return;
 
     void (async () => {
-      setPhase('checkout');
-      setMessage('Opening secure payment…');
-
-      const pending = await readPendingPaystackCheckout(reference);
-      if (cancelled) return;
-
-      if (!pending) {
-        setPhase('error');
-        setMessage('Payment session expired. Please go back and try again.');
-        return;
-      }
-
-      const checkoutResult = await openPaystackCheckout(pending.paymentUrl, {
-        redirectUrl: pending.redirectUrl,
-        paymentReference: reference,
-        skipNavigation: true,
-      });
-
-      if (cancelled) return;
-      await clearPendingPaystackCheckout();
-
-      if (
-        checkoutResult.outcome === 'completed' &&
-        checkoutResult.verifiedResult?.success
-      ) {
-        await applyVerifyResult(checkoutResult.verifiedResult);
-        return;
-      }
-
-      if (checkoutResult.outcome === 'completed') {
+      if (transactionId) {
         await runVerify();
         return;
       }
 
-      if (checkoutResult.outcome === 'cancelled') {
-        const retried = await waitForDonationVerification(reference, {
-          maxAttempts: 6,
-          intervalMs: 1000,
-        });
-        if (retried) {
-          await applyVerifyResult(retried);
-          return;
-        }
+      const pending = await readPendingPaymentCheckout(reference);
+
+      if (isPaymentCheckoutActive(reference)) {
+        await runVerify();
+        return;
       }
 
-      setPhase('error');
-      setMessage(
-        'We could not confirm this payment yet. If Paystack showed success, wait a moment and open the request again — or contact support with your reference.'
-      );
+      if (pending && shouldOpenCheckout) {
+        if (!checkoutFlowRef.current) {
+          checkoutFlowRef.current = completeCheckoutFlow().finally(() => {
+            checkoutFlowRef.current = null;
+          });
+        }
+        await checkoutFlowRef.current;
+        return;
+      }
+
+      if (!pending) {
+        await runVerify();
+      }
     })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [shouldOpenCheckout, reference, runVerify, applyVerifyResult]);
-
-  useEffect(() => {
-    if (shouldOpenCheckout || !reference) return;
-    void runVerify();
-  }, [shouldOpenCheckout, reference, runVerify]);
+  }, [reference, transactionId, shouldOpenCheckout, runVerify, completeCheckoutFlow]);
 
   const goHome = useCallback(() => {
     router.replace('/(tabs)/(main)');
@@ -226,7 +276,7 @@ export default function PaymentCallbackScreen() {
               </Text>
               <Text style={styles.body}>
                 {phase === 'checkout'
-                  ? 'Complete your payment in Paystack. You will return here when finished.'
+                  ? 'Complete your payment in the secure checkout. You will return here when finished.'
                   : message}
               </Text>
             </>
