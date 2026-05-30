@@ -10,7 +10,10 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "ng.plz.app"
+      "bundleIdentifier": "ng.plz.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "ng.plz.app",

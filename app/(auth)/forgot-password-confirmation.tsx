@@ -105,6 +105,7 @@ const styles = StyleSheet.create({
     backgroundColor: CHECK_ICON_BG,
     alignItems: 'center',
     justifyContent: 'center',
+    alignSelf: 'center',
     marginBottom: 28,
   },
   title: {

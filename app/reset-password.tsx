@@ -13,6 +13,7 @@ import { CTAButton } from '@/components/CTAButton';
 import { FormTextInput } from '@/components/FormTextInput';
 import { Screen } from '@/components/Screen';
 import { formContentStyle } from '@/constants/layout';
+import { useCurrentUser } from '@/contexts/CurrentUserContext';
 import { submitPasswordReset } from '@/lib/api/auth';
 import { PlizApiError } from '@/lib/api/types';
 
@@ -58,9 +59,14 @@ function pickTokenParam(
   return typeof s === 'string' && s.trim() ? s.trim() : undefined;
 }
 
+/**
+ * Root-level recovery route — outside `(auth)` so email links work while logged in on web.
+ * Email links use `/reset-password?token=...` (same path, no auth-layout redirects).
+ */
 export default function ResetPasswordScreen() {
   const { token: tokenParam } = useLocalSearchParams<{ token?: string | string[] }>();
   const token = useMemo(() => pickTokenParam(tokenParam), [tokenParam]);
+  const { signOut } = useCurrentUser();
 
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [confirmVisible, setConfirmVisible] = useState(false);
@@ -87,9 +93,8 @@ export default function ResetPasswordScreen() {
         newPassword: data.newPassword,
         confirmPassword: data.confirmPassword,
       });
-      router.replace(
-        '/(auth)/login?passwordReset=1' as import('expo-router').Href
-      );
+      await signOut();
+      router.replace('/(auth)/login?passwordReset=1' as import('expo-router').Href);
     } catch (e) {
       if (e instanceof PlizApiError) {
         for (const item of e.errors) {
@@ -151,6 +156,7 @@ export default function ResetPasswordScreen() {
         <Text style={styles.welcomeTitle}>Set a new password</Text>
         <Text style={styles.welcomeSubtitle}>
           Choose a strong password you haven&apos;t used before on this account.
+          {token ? ' You will sign in again with your new password after updating.' : ''}
         </Text>
 
         {!token ? (
