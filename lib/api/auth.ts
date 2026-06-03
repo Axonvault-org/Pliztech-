@@ -1,5 +1,8 @@
 import { apiUrl } from '@/constants/api';
-import { isWebAuthEnvironment } from '@/lib/auth/web-auth';
+import {
+  getRefreshCookieCsrfToken,
+  isWebAuthEnvironment,
+} from '@/lib/auth/web-auth';
 
 import {
   type LoginRequestBody,
@@ -392,12 +395,18 @@ export async function refreshAccessToken(
     throw new PlizApiError('Refresh token is required', 400);
   }
 
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+  };
+  if (useCookie && !rt) {
+    const csrfToken = getRefreshCookieCsrfToken();
+    if (csrfToken) headers['x-csrf-token'] = csrfToken;
+  }
+
   const res = await fetch(apiUrl('/api/auth/refresh-token'), {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-    },
+    headers,
     body:
       useCookie && !rt
         ? JSON.stringify({})
@@ -470,6 +479,9 @@ export async function invalidateRefreshCookie(): Promise<void> {
     method: 'POST',
     headers: {
       Accept: 'application/json',
+      ...(getRefreshCookieCsrfToken()
+        ? { 'x-csrf-token': getRefreshCookieCsrfToken() as string }
+        : {}),
     },
     credentials: 'include',
   });
