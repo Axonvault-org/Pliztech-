@@ -51,13 +51,15 @@
       ],
       "expo-secure-store",
       "expo-web-browser",
+      "expo-apple-authentication",
       [
-        "@react-native-google-signin/google-signin",
+        "expo-image-picker",
         {
-          "iosUrlScheme": "com.googleusercontent.apps.YOUR_IOS_CLIENT_ID"
+          "photosPermission": "Plz needs access to your photos so you can choose a profile picture and personalize your account.",
+          "cameraPermission": "Plz needs camera access so you can take a profile photo or verify your identity.",
+          "microphonePermission": false
         }
-      ],
-      "expo-apple-authentication"
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

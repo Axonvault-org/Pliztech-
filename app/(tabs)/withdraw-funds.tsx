@@ -622,22 +622,13 @@ export default function WithdrawFundsScreen() {
       );
       setPinModalOpen(false);
       setTransactionPin('');
-      Alert.alert('Withdrawal', result.message, [
-        {
-          text: 'Share a story',
-          onPress: () => {
-            void load();
-            router.replace('/(tabs)/share-story');
-          },
+      router.replace({
+        pathname: '/(tabs)/withdrawal-history',
+        params: {
+          submitted: '1',
+          notice: result.message?.trim() || 'Your withdrawal request was submitted successfully.',
         },
-        {
-          text: 'Done',
-          onPress: () => {
-            void load();
-            router.replace(withdrawFundsStep1Href());
-          },
-        },
-      ]);
+      });
     } catch (e) {
       setConfirmError(formatPlizApiErrorForUser(e) || 'Could not submit withdrawal');
     } finally {

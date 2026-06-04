@@ -1,4 +1,4 @@
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
@@ -27,6 +27,18 @@ import {
 const PAGE_SIZE = 20;
 
 export default function WithdrawalHistoryScreen() {
+  const { submitted, notice } = useLocalSearchParams<{
+    submitted?: string | string[];
+    notice?: string | string[];
+  }>();
+  const showSubmittedBanner =
+    submitted === '1' || (Array.isArray(submitted) && submitted.includes('1'));
+  const submittedNotice = (() => {
+    const raw = Array.isArray(notice) ? notice[0] : notice;
+    const text = typeof raw === 'string' ? raw.trim() : '';
+    return text || 'Your withdrawal request was submitted successfully.';
+  })();
+
   const { signOut } = useCurrentUser();
   const [items, setItems] = useState<WithdrawalApiItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -109,6 +121,12 @@ export default function WithdrawalHistoryScreen() {
   return (
     <Screen backgroundColor="#FFFFFF" contentStyle={styles.screenContent}>
       <AppHeaderTitleRow title="Withdrawal History" marginBottom={8} />
+
+      {showSubmittedBanner ? (
+        <View style={styles.successBox} accessibilityLiveRegion="polite">
+          <Text style={styles.successText}>{submittedNotice}</Text>
+        </View>
+      ) : null}
 
       {loading && items.length === 0 ? (
         <View style={styles.centered}>
@@ -197,6 +215,19 @@ const styles = StyleSheet.create({
     marginTop: 12,
     fontSize: 14,
     color: '#6B7280',
+  },
+  successBox: {
+    backgroundColor: '#ECFDF5',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+  },
+  successText: {
+    color: '#047857',
+    fontSize: 14,
+    lineHeight: 20,
   },
   errorBox: {
     backgroundColor: '#FEF2F2',
