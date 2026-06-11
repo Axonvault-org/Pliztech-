@@ -6,6 +6,7 @@ import { ActivityIndicator, Alert, StyleSheet, TextInput, View } from 'react-nat
 import { Text } from '@/components/Text';
 
 import { AppHeaderTitleRow } from '@/components/layout/AppHeaderTitleRow';
+import { NigerianStatePicker } from '@/components/form/NigerianStatePicker';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { Screen } from '@/components/Screen';
 import { NIGERIAN_STATES } from '@/constants/nigerian-states';
@@ -195,13 +196,11 @@ export default function EditPersonalInfoScreen() {
         placeholder="+2348012345678"
         keyboardType="phone-pad"
       />
-      <EditField
-        icon="map-outline"
+      <NigerianStatePicker
         label="State"
         value={stateValue}
-        onChangeText={setStateValue}
-        placeholder="Lagos"
-        autoCapitalize="words"
+        onChange={setStateValue}
+        placeholder="Tap to select state"
       />
       <EditField
         icon="location-outline"

@@ -1,4 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { router } from 'expo-router';
 import { Alert, Pressable, StyleSheet, Switch, View } from 'react-native';
 
 import { Text } from '@/components/Text';
@@ -117,11 +118,7 @@ export default function AccountSettingsScreen() {
   };
 
   const handleDeleteAccount = () => {
-    Alert.alert(
-      'Delete account',
-      'Permanent account deletion must be confirmed by support to protect donors and recipients. Contact support to request deletion. This screen will call the delete API when it is available.',
-      [{ text: 'OK' }]
-    );
+    router.push('/(tabs)/delete-account' as import('expo-router').Href);
   };
 
   return (
@@ -186,8 +183,7 @@ export default function AccountSettingsScreen() {
         <SettingsRow
           icon="trash-outline"
           title="Delete Account"
-          subtitle="Permanently delete your account"
-          badge="Coming soon"
+          subtitle="Permanently delete your account and sign out"
           onPress={handleDeleteAccount}
           destructive
           isLast

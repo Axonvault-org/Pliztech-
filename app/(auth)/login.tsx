@@ -16,7 +16,7 @@ import { Screen } from '@/components/Screen';
 import { formContentStyle } from '@/constants/layout';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
 import { login as loginRequest } from '@/lib/api/auth';
-import { PlizApiError } from '@/lib/api/types';
+import { PlizApiError, formatLoginErrorForUser } from '@/lib/api/types';
 import { setTokens } from '@/lib/auth/access-token';
 import { resetSessionRecoveryState } from '@/lib/auth/session-expired';
 import {
@@ -98,10 +98,10 @@ export default function LoginScreen() {
           }
         }
         if (e.errors.length === 0 || !e.errors.some((x) => x.field === 'email' || x.field === 'password')) {
-          setApiMessage(e.message);
+          setApiMessage(formatLoginErrorForUser(e));
         }
       } else {
-        setApiMessage('Something went wrong. Please try again.');
+        setApiMessage(formatLoginErrorForUser(e));
       }
     } finally {
       setIsSubmitting(false);
@@ -144,7 +144,8 @@ export default function LoginScreen() {
 
           {registered === '1' ? (
             <Text style={styles.successBanner}>
-              Account created. Check your email to verify, then sign in to complete your profile.
+              Account created. Check your inbox and spam folder for the verification email, then sign in to
+              complete your profile.
             </Text>
           ) : null}
 

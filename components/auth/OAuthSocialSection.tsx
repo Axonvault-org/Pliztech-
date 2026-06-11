@@ -3,7 +3,7 @@ import { SocialButton } from '@/components/SocialButton';
 import { Text } from '@/components/Text';
 import { SOCIAL_OAUTH_ENABLED } from '@/constants/features';
 import { loginWithApple, loginWithGoogle } from '@/lib/api/auth';
-import { PlizApiError } from '@/lib/api/types';
+import { formatLoginErrorForUser } from '@/lib/api/types';
 import { applyOAuthLoginResult } from '@/lib/auth/oauth-session';
 import { signInWithApple } from '@/lib/auth/social/apple-sign-in';
 import { isGoogleSignInConfigured, signInWithGoogleNative } from '@/lib/auth/social/google-sign-in';
@@ -65,11 +65,7 @@ export function OAuthSocialSection({
         const result = await loginWithGoogle(idToken);
         await applyOAuthLoginResult(result, refreshUser);
       } catch (e) {
-        const msg =
-          e instanceof PlizApiError
-            ? e.message
-            : 'Google sign-in failed. Please try again.';
-        onOAuthError?.(msg);
+        onOAuthError?.(formatLoginErrorForUser(e));
       } finally {
         setBusy(false);
       }
@@ -88,13 +84,7 @@ export function OAuthSocialSection({
       if (e instanceof Error && e.message === 'GOOGLE_CANCELLED') {
         return;
       }
-      const msg =
-        e instanceof PlizApiError
-          ? e.message
-          : e instanceof Error
-            ? e.message
-            : 'Google sign-in failed. Please try again.';
-      onOAuthError?.(msg);
+      onOAuthError?.(formatLoginErrorForUser(e));
     } finally {
       setBusy(false);
     }
@@ -108,13 +98,7 @@ export function OAuthSocialSection({
       const result = await loginWithApple({ idToken, firstName, lastName });
       await applyOAuthLoginResult(result, refreshUser);
     } catch (e) {
-      const msg =
-        e instanceof PlizApiError
-          ? e.message
-          : e instanceof Error
-            ? e.message
-            : 'Apple sign-in failed. Please try again.';
-      onOAuthError?.(msg);
+      onOAuthError?.(formatLoginErrorForUser(e));
     } finally {
       setBusy(false);
     }
