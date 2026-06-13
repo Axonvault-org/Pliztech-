@@ -1,7 +1,7 @@
 import { refreshAccessToken } from '@/lib/api/auth';
 
 import { getRefreshToken, setTokens } from './access-token';
-import { isWebAuthEnvironment } from '@/lib/auth/web-auth';
+import { isWebAuthEnvironment, clearStaleHostOnlyAuthCookies } from '@/lib/auth/web-auth';
 
 /** Single in-flight refresh so concurrent 401s share one token rotation. */
 let refreshPromise: Promise<boolean> | null = null;
@@ -30,6 +30,7 @@ export function tryRefreshAccessToken(): Promise<boolean> {
   refreshPromise = (async (): Promise<boolean> => {
     try {
       if (isWebAuthEnvironment()) {
+        clearStaleHostOnlyAuthCookies();
         const { accessToken } = await refreshAccessToken();
         await setTokens(accessToken, '');
         refreshFailedUntil = 0;
