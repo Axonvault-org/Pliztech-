@@ -10,6 +10,7 @@ import {
   maskAccountNumber,
   withdrawalStatusUi,
 } from '@/lib/withdrawal/history-display';
+import { WITHDRAWAL_FAILED_USER_MESSAGE } from '@/lib/withdrawal/copy';
 
 export type WithdrawalHistoryCardProps = {
   item: WithdrawalApiItem;
@@ -61,7 +62,7 @@ export function WithdrawalHistoryCard({ item, onPress }: WithdrawalHistoryCardPr
 
       {item.failure_reason && (item.status === 'failed' || item.status === 'rejected') ? (
         <Text style={styles.failureText} numberOfLines={3}>
-          {item.failure_reason}
+          {WITHDRAWAL_FAILED_USER_MESSAGE}
         </Text>
       ) : null}
 

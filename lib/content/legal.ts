@@ -46,7 +46,7 @@ export const TERMS_SECTIONS: LegalSection[] = [
   {
     title: '5. Fees and Payments',
     items: [
-      'Plz charges a 5% platform fee on all successful requests. A 7.5% VAT is applied to the platform fee, making the total fee deducted 5.375%.',
+      'Plz charges a 7% platform fee on all successful requests. A 7.5% VAT is applied to the platform fee, making the total fee deducted 7.525%.',
       'There is no fee for Donors to give money.',
       'All payments are processed by third-party payment gateways. By making a donation, you agree to the terms of those gateways.',
       'All donations are final and non-refundable. In cases of proven fraud, Plz will work with law enforcement and may, at its sole discretion, attempt to recover funds.',
@@ -282,7 +282,7 @@ export const FAQ_SECTIONS: FaqSection[] = [
       {
         question: 'Do you take a cut of my donation?',
         answer: [
-          'Plz charges a 5% platform fee to the recipient on successful requests. The fee is deducted from the total raised before payout.',
+          'Plz charges a 7% platform fee to the recipient on successful requests. The fee is deducted from the total raised before payout.',
         ],
       },
     ],

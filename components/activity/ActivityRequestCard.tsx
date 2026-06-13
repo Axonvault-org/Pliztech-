@@ -18,6 +18,7 @@ const STATUS_CONFIG: Record<
   active: { bg: '#DBEAFE', text: '#2E8BEA', icon: 'checkmark-circle' },
   pending: { bg: '#FEF3C7', text: '#B45309', icon: 'hourglass-outline' },
   expired: { bg: '#FFEDD5', text: '#EA580C', icon: 'time-outline' },
+  withdrawn: { bg: '#E0E7FF', text: '#4338CA', icon: 'wallet-outline' },
   cancelled: { bg: '#FEE2E2', text: '#DC2626', icon: 'close-circle' },
 };
 
@@ -76,7 +77,11 @@ export function ActivityRequestCard({ request, onPress, onRequestPress }: Activi
         <View style={[styles.statusChip, { backgroundColor: config.bg }]}>
           <Ionicons name={config.icon} size={14} color={config.text} style={styles.statusIcon} />
           <Text style={[styles.statusText, { color: config.text }]}>
-            {status === 'pending' ? 'Pending' : status.charAt(0).toUpperCase() + status.slice(1)}
+            {status === 'pending'
+              ? 'Pending'
+              : status === 'withdrawn'
+                ? 'Withdrawn early'
+                : status.charAt(0).toUpperCase() + status.slice(1)}
           </Text>
         </View>
         <Text style={styles.amount}>{formatNaira(amount)}</Text>

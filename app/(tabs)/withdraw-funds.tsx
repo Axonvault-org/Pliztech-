@@ -27,6 +27,7 @@ import { ConfirmWithdrawalSummary } from '@/components/withdraw/ConfirmWithdrawa
 import { FundedWithdrawRequestCard } from '@/components/withdraw/FundedWithdrawRequestCard';
 import { VerifiedAccountNameCard } from '@/components/withdraw/VerifiedAccountNameCard';
 import { WithdrawFundsShieldNotice } from '@/components/withdraw/WithdrawFundsShieldNotice';
+import { WithdrawSettlementNotice } from '@/components/withdraw/WithdrawSettlementNotice';
 import { WithdrawProgressSteps } from '@/components/withdraw/WithdrawProgressSteps';
 import {
   ensureWithdrawalBankAccount,
@@ -34,6 +35,7 @@ import {
   getWithdrawalBanks,
   resolveWithdrawalBankAccount,
   type NigerianBank,
+  type WithdrawalBankAccount,
 } from '@/lib/api/bank-accounts';
 import { categoryEmojiForId } from '@/constants/categories';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
@@ -45,15 +47,20 @@ import {
 import {
   begFundingProgress,
   begRaisedAmount,
-  isBegRequestPeriodEnded,
+  begWithdrawListStatusLabel,
   isBegWithdrawable,
 } from '@/lib/beg/withdrawable';
 import { getBegDonations } from '@/lib/api/donations';
 import { getTransactionPinStatus } from '@/lib/api/transaction-pin';
 import { formatPlizApiErrorForUser, PlizApiError } from '@/lib/api/types';
 import type { WithdrawalApiItem } from '@/lib/api/withdrawals';
-import { getUserWithdrawals, requestWithdrawal } from '@/lib/api/withdrawals';
+import {
+  getUserWithdrawals,
+  latestWithdrawalForBeg,
+  requestWithdrawal,
+} from '@/lib/api/withdrawals';
 import { calculateWithdrawalFeesDisplay } from '@/lib/withdrawal-fees';
+import { WITHDRAWAL_SUBMITTED_SUCCESS_MESSAGE } from '@/lib/withdrawal/copy';
 import { getAccessToken } from '@/lib/auth/access-token';
 import {
   isUnauthorizedSessionError,
@@ -67,17 +74,6 @@ const GREEN_BAR = '#059669';
 
 function formatNaira(amount: number) {
   return `₦${Math.round(amount).toLocaleString()}`;
-}
-
-function latestWithdrawalForBeg(
-  withdrawals: WithdrawalApiItem[],
-  begId: string
-): WithdrawalApiItem | undefined {
-  const forBeg = withdrawals.filter((w) => w.beg.id === begId);
-  forBeg.sort(
-    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-  );
-  return forBeg[0];
 }
 
 type WithdrawRow = {
@@ -113,13 +109,7 @@ function buildRows(
     const raised = begRaisedAmount(beg);
     const goal = Math.round(Number(beg.amountRequested) || 0);
     const barFillRatio = begFundingProgress(beg);
-    const isFullyFunded = beg.status === 'funded' || (goal > 0 && raised >= goal);
-    const periodEnded = isBegRequestPeriodEnded(beg);
-    const defaultStatusLabel = isFullyFunded
-      ? 'Fully funded'
-      : periodEnded
-        ? 'Expired · Withdrawable'
-        : 'Withdrawable';
+    const defaultStatusLabel = begWithdrawListStatusLabel(beg);
     const w = latestWithdrawalForBeg(withdrawals, beg.id);
 
     if (!w || w.status === 'failed') {
@@ -221,6 +211,9 @@ export default function WithdrawFundsScreen() {
   const [selectedBegId, setSelectedBegId] = useState<string | null>(null);
 
   /** Step 2 — bank form */
+  const [savedAccounts, setSavedAccounts] = useState<WithdrawalBankAccount[]>([]);
+  const [savedAccountsLoading, setSavedAccountsLoading] = useState(false);
+  const [selectedSavedAccountId, setSelectedSavedAccountId] = useState<string | null>(null);
   const [banks, setBanks] = useState<NigerianBank[]>([]);
   const [banksLoading, setBanksLoading] = useState(false);
   const [banksError, setBanksError] = useState<string | null>(null);
@@ -312,6 +305,26 @@ export default function WithdrawFundsScreen() {
     [signOut]
   );
 
+  const loadSavedAccounts = useCallback(async () => {
+    setSavedAccountsLoading(true);
+    try {
+      const token = await getAccessToken();
+      if (!token) {
+        setSavedAccounts([]);
+        return;
+      }
+      const accounts = await getWithdrawalBankAccounts(token);
+      setSavedAccounts(accounts);
+      const defaultAccount = accounts.find((a) => a.isDefault) ?? accounts[0];
+      setSelectedSavedAccountId(defaultAccount?.id ?? null);
+    } catch {
+      setSavedAccounts([]);
+      setSelectedSavedAccountId(null);
+    } finally {
+      setSavedAccountsLoading(false);
+    }
+  }, []);
+
   const loadBanks = useCallback(async () => {
     setBanksLoading(true);
     setBanksError(null);
@@ -341,8 +354,14 @@ export default function WithdrawFundsScreen() {
   useEffect(() => {
     if (step === 2) {
       void loadBanks();
+      void loadSavedAccounts();
+      setSelectedBank(null);
+      setAccountNumber('');
+      setResolvedAccountName(null);
+      setResolveError(null);
+      setStep2Error(null);
     }
-  }, [step, loadBanks]);
+  }, [step, loadBanks, loadSavedAccounts]);
 
   /** Step 2 / 3 require selection context; step 3 needs a bank account id */
   useEffect(() => {
@@ -559,14 +578,34 @@ export default function WithdrawFundsScreen() {
   }, [step, selectedBank, accountDigits, signOut]);
 
   const step2CanContinue =
-    selectedBank !== null &&
-    accountDigits.length === 10 &&
-    Boolean(resolvedAccountName?.trim()) &&
-    !resolveLoading &&
-    !step2Submitting;
+    selectedSavedAccountId !== null ||
+    (selectedBank !== null &&
+      accountDigits.length === 10 &&
+      Boolean(resolvedAccountName?.trim()) &&
+      !resolveLoading &&
+      !step2Submitting);
+
+  const handleUseSavedAccount = () => {
+    if (!selectedSavedAccountId) return;
+    router.replace(
+      withdrawFundsHref({
+        step: '3',
+        begId: paramBegId,
+        amount: String(amountNaira),
+        bankAccountId: selectedSavedAccountId,
+      })
+    );
+  };
 
   const handleStep2Continue = async (_retry = false) => {
-    if (!step2CanContinue || !selectedBank) return;
+    if (!step2CanContinue) return;
+
+    if (selectedSavedAccountId && !selectedBank && !accountDigits) {
+      handleUseSavedAccount();
+      return;
+    }
+
+    if (!selectedBank) return;
     setStep2Error(null);
     setStep2Submitting(true);
     try {
@@ -626,11 +665,14 @@ export default function WithdrawFundsScreen() {
         pathname: '/(tabs)/withdrawal-history',
         params: {
           submitted: '1',
-          notice: result.message?.trim() || 'Your withdrawal request was submitted successfully.',
+          notice: result.message?.trim() || WITHDRAWAL_SUBMITTED_SUCCESS_MESSAGE,
         },
       });
     } catch (e) {
-      setConfirmError(formatPlizApiErrorForUser(e) || 'Could not submit withdrawal');
+      setConfirmError(
+        formatPlizApiErrorForUser(e) ||
+          'Your withdrawal could not be completed. Please try again later or contact support.'
+      );
     } finally {
       setConfirmSubmitting(false);
     }
@@ -667,10 +709,20 @@ export default function WithdrawFundsScreen() {
 
   const selectBank = (b: NigerianBank) => {
     setSelectedBank(b);
+    setSelectedSavedAccountId(null);
     setBankPickerOpen(false);
     setBankSearch('');
     setResolvedAccountName(null);
     setResolveError(null);
+  };
+
+  const selectSavedAccount = (accountId: string) => {
+    setSelectedSavedAccountId(accountId);
+    setSelectedBank(null);
+    setAccountNumber('');
+    setResolvedAccountName(null);
+    setResolveError(null);
+    setStep2Error(null);
   };
 
   return (
@@ -702,9 +754,11 @@ export default function WithdrawFundsScreen() {
                 >
                   <Text style={styles.screenTitle}>Select a request</Text>
                   <Text style={styles.screenSubtitle}>
-                    Withdraw donations from fully funded requests or from expired requests with
-                    partial funding
+                    Withdraw donations you&apos;ve received at any time. Active requests will close
+                    when you withdraw.
                   </Text>
+
+                  <WithdrawSettlementNotice />
 
                   {loading && rows.length === 0 ? (
                     <View style={styles.centered}>
@@ -727,8 +781,8 @@ export default function WithdrawFundsScreen() {
                       <Text style={styles.emptyEmoji}>🏦</Text>
                       <Text style={styles.emptyTitle}>Nothing to withdraw yet</Text>
                       <Text style={styles.emptySub}>
-                        When a request is fully funded or expires with donations, it will appear
-                        here so you can withdraw to your bank account.
+                        When you receive donations on a request, it will appear here so you can
+                        withdraw to your bank account.
                       </Text>
                     </View>
                   ) : null}
@@ -784,6 +838,49 @@ export default function WithdrawFundsScreen() {
                 Where should we send {formatNaira(amountNaira)}?
               </Text>
 
+              {savedAccountsLoading ? (
+                <View style={styles.savedAccountsLoading}>
+                  <ActivityIndicator size="small" color="#2E8BEA" />
+                  <Text style={styles.resolveLoadingText}>Loading saved accounts…</Text>
+                </View>
+              ) : null}
+
+              {!savedAccountsLoading && savedAccounts.length > 0 ? (
+                <View style={styles.savedAccountsSection}>
+                  <Text style={styles.fieldLabel}>Saved accounts</Text>
+                  {savedAccounts.map((account) => {
+                    const selected = selectedSavedAccountId === account.id;
+                    return (
+                      <Pressable
+                        key={account.id}
+                        onPress={() => selectSavedAccount(account.id)}
+                        style={[
+                          styles.savedAccountRow,
+                          selected && styles.savedAccountRowSelected,
+                        ]}
+                        accessibilityRole="radio"
+                        accessibilityState={{ selected }}
+                      >
+                        <View style={styles.savedAccountTextWrap}>
+                          <Text style={styles.savedAccountName} numberOfLines={1}>
+                            {account.accountName}
+                          </Text>
+                          <Text style={styles.savedAccountMeta} numberOfLines={1}>
+                            {account.bankName} · {account.accountNumber}
+                          </Text>
+                        </View>
+                        <Ionicons
+                          name={selected ? 'radio-button-on' : 'radio-button-off'}
+                          size={22}
+                          color={selected ? '#2E8BEA' : '#9CA3AF'}
+                        />
+                      </Pressable>
+                    );
+                  })}
+                  <Text style={styles.orDividerText}>Or add a new account</Text>
+                </View>
+              ) : null}
+
               <Text style={styles.fieldLabel}>Bank</Text>
               <Pressable
                 onPress={() => setBankPickerOpen(true)}
@@ -806,7 +903,10 @@ export default function WithdrawFundsScreen() {
                 placeholder="Enter 10-digit account number"
                 placeholderTextColor="#9CA3AF"
                 value={accountDigits}
-                onChangeText={(t) => setAccountNumber(t.replace(/\D/g, '').slice(0, 10))}
+                onChangeText={(t) => {
+                  setSelectedSavedAccountId(null);
+                  setAccountNumber(t.replace(/\D/g, '').slice(0, 10));
+                }}
                 keyboardType="number-pad"
                 maxLength={10}
                 autoCorrect={false}
@@ -847,7 +947,13 @@ export default function WithdrawFundsScreen() {
             <View style={[styles.step2Footer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
               <View style={styles.ctaWrap}>
                 <CTAButton
-                  label={step2Submitting ? 'Saving…' : 'Continue'}
+                  label={
+                    step2Submitting
+                      ? 'Saving…'
+                      : selectedSavedAccountId && !selectedBank
+                        ? 'Continue'
+                        : 'Save & continue'
+                  }
                   onPress={() => void handleStep2Continue(false)}
                   variant="gradient"
                   disabled={!step2CanContinue || step2Submitting}
@@ -913,6 +1019,7 @@ export default function WithdrawFundsScreen() {
                     vatFee={step3Summary.vatFee}
                     amountToReceive={step3Summary.amountToReceive}
                   />
+                  <WithdrawSettlementNotice />
                   <WithdrawFundsShieldNotice />
                   {confirmError ? (
                     <Text style={styles.step3ConfirmError}>{confirmError}</Text>
@@ -1251,6 +1358,53 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: '#E5E7EB',
     backgroundColor: '#FFFFFF',
+  },
+  savedAccountsSection: {
+    marginBottom: 8,
+  },
+  savedAccountsLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 16,
+  },
+  savedAccountRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    marginBottom: 10,
+  },
+  savedAccountRowSelected: {
+    borderColor: '#2E8BEA',
+    backgroundColor: '#F0F7FF',
+  },
+  savedAccountTextWrap: {
+    flex: 1,
+    marginRight: 12,
+  },
+  savedAccountName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 2,
+  },
+  savedAccountMeta: {
+    fontSize: 13,
+    color: '#6B7280',
+  },
+  orDividerText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#9CA3AF',
+    textAlign: 'center',
+    marginTop: 4,
+    marginBottom: 16,
   },
   step3Wrap: {
     flex: 1,

@@ -42,6 +42,10 @@ import {
   withUnauthorizedRecovery,
 } from '@/lib/auth/session-expired';
 import { formatAmountInput } from '@/lib/money/input-format';
+import {
+  PLATFORM_FEE_PERCENT,
+  VAT_ON_PLATFORM_FEE_PERCENT,
+} from '@/lib/withdrawal-fees';
 
 const MAX_DESC_WORDS = 40;
 
@@ -425,7 +429,7 @@ export default function CreateScreen() {
           <View style={styles.platformFeeBox}>
             <Ionicons name="information-circle-outline" size={20} color={COLORS.body} style={styles.platformFeeIcon} />
             <Text style={styles.platformFeeText}>
-              A 5% platform fee applies to successful requests. VAT is 7.5% of that fee.
+              A {PLATFORM_FEE_PERCENT}% platform fee applies to successful requests. VAT is {VAT_ON_PLATFORM_FEE_PERCENT}% of that fee.
             </Text>
           </View>
 
