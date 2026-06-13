@@ -40,8 +40,23 @@ import { openPaymentCheckout } from '@/lib/utils/open-payment-checkout';
 import { withUnauthorizedRecovery } from '@/lib/auth/session-expired';
 import { getAccessToken } from '@/lib/auth/access-token';
 import { digitsOnly, formatAmountInput } from '@/lib/money/input-format';
+import {
+  isBegActiveForWithdrawNow,
+  isBegWithdrawable,
+} from '@/lib/beg/withdrawable';
+import {
+  getUserWithdrawals,
+  latestWithdrawalForBeg,
+  type WithdrawalApiItem,
+} from '@/lib/api/withdrawals';
 import type { RequestDetail } from '@/lib/types/requests';
-import { getPlatformFee, getRequestReceives, getVatOnPlatformFee } from '@/lib/types/requests';
+import {
+  getPlatformFee,
+  getRequestReceives,
+  getVatOnPlatformFee,
+  PLATFORM_FEE_PERCENT,
+  VAT_ON_PLATFORM_FEE_PERCENT,
+} from '@/lib/types/requests';
 
 const AMOUNT_OPTIONS = [
   { value: 1000, label: '₦1K' },
@@ -108,6 +123,7 @@ export default function RequestDetailScreen() {
   const [begDonations, setBegDonations] = useState<BegDonationApiItem[]>([]);
   const [donorTotal, setDonorTotal] = useState(0);
   const [donorsLoading, setDonorsLoading] = useState(false);
+  const [ownerWithdrawal, setOwnerWithdrawal] = useState<WithdrawalApiItem | null>(null);
 
   const loadRequest = useCallback(async () => {
     if (!id) {
@@ -169,10 +185,33 @@ export default function RequestDetailScreen() {
     if (!request?.ownerUserId || !user?.id || user.id !== request.ownerUserId) {
       setBegDonations([]);
       setDonorTotal(0);
+      setOwnerWithdrawal(null);
       return;
     }
     void loadDonors();
   }, [request?.ownerUserId, user?.id, loadDonors]);
+
+  const loadOwnerWithdrawal = useCallback(async () => {
+    if (!id || !request?.ownerUserId || !user?.id || user.id !== request.ownerUserId) {
+      setOwnerWithdrawal(null);
+      return;
+    }
+    try {
+      const token = await getAccessToken();
+      if (!token) {
+        setOwnerWithdrawal(null);
+        return;
+      }
+      const wd = await getUserWithdrawals(token, { page: 1, limit: 50 });
+      setOwnerWithdrawal(latestWithdrawalForBeg(wd.withdrawals, id) ?? null);
+    } catch {
+      setOwnerWithdrawal(null);
+    }
+  }, [id, request?.ownerUserId, user?.id]);
+
+  useEffect(() => {
+    void loadOwnerWithdrawal();
+  }, [loadOwnerWithdrawal, request?.raised, request?.isWithdrawn]);
 
   /** Set when request loads or user changes amount — avoids errors on first paint. */
   const [selectedAmount, setSelectedAmount] = useState<number | null>(null);
@@ -432,10 +471,58 @@ export default function RequestDetailScreen() {
     approved,
     canDonate: canDonateFromApi,
     viewerDonation,
+    begStatus,
+    isWithdrawn,
   } = request;
 
   const isOwner =
     Boolean(user?.id && ownerUserId && user.id === ownerUserId);
+  const isAwaitingApproval = isOwner && approved === false;
+  const ownerWithdrawalPending =
+    ownerWithdrawal != null &&
+    (ownerWithdrawal.status === 'pending' || ownerWithdrawal.status === 'processing');
+  const ownerWithdrawalCompleted = ownerWithdrawal?.status === 'completed';
+  const ownerCanWithdraw =
+    isOwner &&
+    !isAwaitingApproval &&
+    isBegWithdrawable({
+      status: begStatus ?? 'active',
+      expiresAt: request.expiresAt ?? '',
+      amountRaised: raised,
+      amountRequested: goal,
+      isWithdrawn,
+      approved,
+    }) &&
+    !ownerWithdrawalPending &&
+    !ownerWithdrawalCompleted &&
+    !isWithdrawn;
+  const ownerShowWithdrawCta =
+    isOwner &&
+    !isAwaitingApproval &&
+    !ownerWithdrawalPending &&
+    !ownerWithdrawalCompleted &&
+    !isWithdrawn &&
+    !['cancelled', 'rejected', 'flagged', 'withdrawn'].includes(begStatus ?? '');
+  const ownerWithdrawEnabled = ownerCanWithdraw;
+  const withdrawNowActive =
+    ownerWithdrawEnabled &&
+    isBegActiveForWithdrawNow({
+      status: begStatus ?? 'active',
+      expiresAt: request.expiresAt ?? '',
+      amountRaised: raised,
+      amountRequested: goal,
+    });
+
+  const onOwnerWithdrawPress = () => {
+    router.push({
+      pathname: '/(tabs)/withdraw-funds',
+      params: {
+        step: '2',
+        begId: request.id,
+        amount: String(raised),
+      },
+    });
+  };
   const canViewRequesterProfile =
     Boolean(ownerUserId) && !isAnonymous && !isOwner;
 
@@ -447,7 +534,6 @@ export default function RequestDetailScreen() {
     }
     setProfileModalUserId(ownerUserId);
   };
-  const isAwaitingApproval = isOwner && approved === false;
   const visitorCanDonate =
     canDonateFromApi ??
     (approved !== false &&
@@ -485,9 +571,15 @@ export default function RequestDetailScreen() {
     }
   };
 
-  /** Figma: clock badge shows posted time (“8h ago”), not time remaining. */
+  /** Figma: clock badge shows posted time (“8h ago”), withdrawn early, or ended. */
   const fundingPostedBadge =
-    timeRemaining === 'Expired' ? 'Ended' : timeAgo;
+    isWithdrawn && begStatus !== 'funded'
+      ? 'Withdrawn early'
+      : timeRemaining === 'Expired'
+        ? 'Ended'
+        : timeAgo;
+  const fundingBadgeMuted =
+    isWithdrawn && begStatus !== 'funded' ? true : timeRemaining === 'Expired';
 
   return (
     <Screen backgroundColor="#FFFFFF">
@@ -620,18 +712,30 @@ export default function RequestDetailScreen() {
               <View
                 style={[
                   styles.timeBadge,
-                  timeRemaining === 'Expired' && styles.timeBadgeMuted,
+                  fundingBadgeMuted && styles.timeBadgeMuted,
+                  isWithdrawn && begStatus !== 'funded' && styles.timeBadgeWithdrawn,
                 ]}
               >
                 <Ionicons
-                  name="time-outline"
+                  name={
+                    isWithdrawn && begStatus !== 'funded'
+                      ? 'wallet-outline'
+                      : 'time-outline'
+                  }
                   size={14}
-                  color={timeRemaining === 'Expired' ? '#6B7280' : '#2E8BEA'}
+                  color={
+                    isWithdrawn && begStatus !== 'funded'
+                      ? '#4338CA'
+                      : fundingBadgeMuted
+                        ? '#6B7280'
+                        : '#2E8BEA'
+                  }
                 />
                 <Text
                   style={[
                     styles.timeBadgeText,
-                    timeRemaining === 'Expired' && styles.timeBadgeTextMuted,
+                    fundingBadgeMuted && styles.timeBadgeTextMuted,
+                    isWithdrawn && begStatus !== 'funded' && styles.timeBadgeTextWithdrawn,
                   ]}
                 >
                   {fundingPostedBadge}
@@ -654,13 +758,13 @@ export default function RequestDetailScreen() {
                   </View>
                   <View style={styles.breakdownLine}>
                     <View style={styles.breakdownLabelRow}>
-                      <Text style={styles.breakdownLabel}>Platform fee (5%)</Text>
+                      <Text style={styles.breakdownLabel}>Platform fee ({PLATFORM_FEE_PERCENT}%)</Text>
                       <Ionicons name="information-circle-outline" size={16} color="#9CA3AF" />
                     </View>
                     <Text style={styles.breakdownValueMuted}>-{formatNaira(platformFee)}</Text>
                   </View>
                   <View style={styles.breakdownLine}>
-                    <Text style={styles.breakdownLabel}>VAT (7.5% of fee)</Text>
+                    <Text style={styles.breakdownLabel}>VAT ({VAT_ON_PLATFORM_FEE_PERCENT}% of fee)</Text>
                     <Text style={styles.breakdownValueMuted}>-{formatNaira(vatOnPlatformFee)}</Text>
                   </View>
                   <View style={[styles.breakdownLine, styles.breakdownLineLast]}>
@@ -673,20 +777,64 @@ export default function RequestDetailScreen() {
           </View>
 
           {isOwner ? (
-            <RequestDonorList
-              donations={begDonations}
-              total={donorTotal}
-              loading={donorsLoading}
-            />
-          ) : null}
+            <>
+              <RequestDonorList
+                donations={begDonations}
+                total={donorTotal}
+                loading={donorsLoading}
+              />
 
-          {isOwner ? (
-            <View style={styles.ownerNotice}>
-              <Ionicons name="information-circle-outline" size={22} color="#2E8BEA" />
-              <Text style={styles.ownerNoticeText}>
-                You can&apos;t donate to your own request. Share this request so others can contribute.
-              </Text>
-            </View>
+              {ownerWithdrawalPending ? (
+                <View style={styles.withdrawProcessingNotice}>
+                  <Ionicons name="time-outline" size={22} color="#B45309" />
+                  <Text style={styles.withdrawProcessingText}>
+                    Your withdrawal is being processed. We&apos;ll notify you when it completes.
+                  </Text>
+                </View>
+              ) : null}
+
+              {ownerShowWithdrawCta ? (
+                <View style={styles.withdrawCtaBlock}>
+                  <CTAButton
+                    variant="gradient"
+                    label={
+                      ownerWithdrawEnabled
+                        ? withdrawNowActive
+                          ? `Withdraw now · ${formatNaira(raised)}`
+                          : `Withdraw ${formatNaira(raised)}`
+                        : 'Withdraw now'
+                    }
+                    onPress={onOwnerWithdrawPress}
+                    disabled={!ownerWithdrawEnabled}
+                    accessibilityLabel={
+                      ownerWithdrawEnabled
+                        ? withdrawNowActive
+                          ? `Withdraw now ${formatNaira(raised)}`
+                          : `Withdraw ${formatNaira(raised)}`
+                        : 'Withdraw now — no donations yet'
+                    }
+                  />
+                  {ownerWithdrawEnabled && withdrawNowActive ? (
+                    <Text style={styles.withdrawCtaHint}>
+                      Withdrawing will end this request and stop further donations.
+                    </Text>
+                  ) : !ownerWithdrawEnabled && raised <= 0 ? (
+                    <Text style={styles.withdrawCtaHint}>
+                      Withdraw opens once you receive your first donation.
+                    </Text>
+                  ) : null}
+                </View>
+              ) : null}
+
+              <View style={styles.ownerNotice}>
+                <Ionicons name="information-circle-outline" size={22} color="#2E8BEA" />
+                <Text style={styles.ownerNoticeText}>
+                  {ownerWithdrawEnabled
+                    ? 'Share this request so others can contribute before you withdraw.'
+                    : "You can't donate to your own request. Share this request so others can contribute."}
+                </Text>
+              </View>
+            </>
           ) : (
             <>
               {viewerDonation ? (
@@ -1013,6 +1161,9 @@ const styles = StyleSheet.create({
   timeBadgeMuted: {
     backgroundColor: '#F3F4F6',
   },
+  timeBadgeWithdrawn: {
+    backgroundColor: '#E0E7FF',
+  },
   timeBadgeText: {
     fontSize: 12,
     fontWeight: '600',
@@ -1020,6 +1171,9 @@ const styles = StyleSheet.create({
   },
   timeBadgeTextMuted: {
     color: '#6B7280',
+  },
+  timeBadgeTextWithdrawn: {
+    color: '#4338CA',
   },
   progressWrap: {
     marginBottom: 16,
@@ -1209,6 +1363,35 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     color: '#1E40AF',
+    fontWeight: '500',
+  },
+  withdrawCtaBlock: {
+    marginBottom: 16,
+    gap: 10,
+  },
+  withdrawCtaHint: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#6B7280',
+    textAlign: 'center',
+    paddingHorizontal: 8,
+  },
+  withdrawProcessingNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: '#FFFBEB',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#FCD34D',
+  },
+  withdrawProcessingText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#92400E',
     fontWeight: '500',
   },
   donorNotice: {

@@ -2,6 +2,8 @@ import { StyleSheet, View } from 'react-native';
 
 import { Text } from '@/components/Text';
 
+import { PLATFORM_FEE_PERCENT, VAT_ON_PLATFORM_FEE_PERCENT } from '@/lib/withdrawal-fees';
+
 function formatNaira(amount: number) {
   return `₦${Math.round(amount).toLocaleString()}`;
 }
@@ -76,12 +78,12 @@ export function ConfirmWithdrawalSummary({
         valueStyle={styles.valueStrong}
       />
       <SummaryRow
-        label="Platform fee (5%)"
+        label={`Platform fee (${PLATFORM_FEE_PERCENT}%)`}
         value={formatNaira(-companyFee)}
         valueStyle={styles.feeNegative}
       />
       <SummaryRow
-        label="VAT (7.5% of fee)"
+        label={`VAT (${VAT_ON_PLATFORM_FEE_PERCENT}% of fee)`}
         value={formatNaira(-vatFee)}
         valueStyle={styles.feeNegative}
       />

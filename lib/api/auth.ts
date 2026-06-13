@@ -504,6 +504,58 @@ export async function invalidateRefreshCookie(): Promise<void> {
 }
 
 /**
+ * DELETE /api/auth/account — soft-delete the current user (Bearer required).
+ */
+export async function deleteAccount(
+  accessToken: string,
+  options?: { password: string; reason?: string }
+): Promise<string> {
+  if (!options?.password?.trim()) {
+    throw new PlizApiError('Password is required to delete your account', 400);
+  }
+
+  const body: { password: string; reason?: string } = {
+    password: options.password,
+  };
+  const reason = options.reason?.trim();
+  if (reason) body.reason = reason;
+
+  const res = await fetch(apiUrl('/api/auth/account'), {
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(body),
+    credentials: isWebAuthEnvironment() ? 'include' : 'omit',
+  });
+
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    throw new PlizApiError('Invalid response from server', res.status);
+  }
+
+  const data = json as {
+    success?: boolean;
+    message?: string;
+    errors?: { field: string; message: string }[];
+  };
+
+  if (!res.ok || data.success !== true) {
+    throw new PlizApiError(
+      data.message ?? `Request failed (${res.status})`,
+      res.status,
+      Array.isArray(data.errors) ? data.errors : []
+    );
+  }
+
+  return data.message ?? 'Your account has been deleted.';
+}
+
+/**
  * GET /api/auth/me — current user + profile (Bearer required).
  */
 export async function getMe(accessToken: string): Promise<MeUser> {

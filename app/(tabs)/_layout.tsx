@@ -54,6 +54,7 @@ export default function TabLayout() {
       />
       <Stack.Screen name="logout" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="account-settings" options={{ headerShown: false, presentation: 'card' }} />
+      <Stack.Screen name="delete-account" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="stories-feed" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="share-story" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="kyc-verification" options={{ headerShown: false, presentation: 'card' }} />

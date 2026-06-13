@@ -6,12 +6,9 @@ import { useCallback, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import {
   ActivityIndicator,
-  FlatList,
   Linking,
-  Modal,
   Pressable,
   StyleSheet,
-  TextInput,
   View,
 } from 'react-native';
 
@@ -19,6 +16,8 @@ import { Text } from '@/components/Text';
 import { z } from 'zod';
 
 import { CTAButton } from '@/components/CTAButton';
+import { DateOfBirthPicker } from '@/components/form/DateOfBirthPicker';
+import { NigerianStatePicker } from '@/components/form/NigerianStatePicker';
 import { FormTextInput } from '@/components/FormTextInput';
 import { Screen } from '@/components/Screen';
 import { formContentStyle } from '@/constants/layout';
@@ -71,7 +70,7 @@ const profileSchema = z
     dateOfBirth: z
       .string()
       .min(1, 'Date of birth is required')
-      .regex(ISO_DATE_REGEX, 'Use YYYY-MM-DD (e.g. 1993-05-15)')
+      .regex(ISO_DATE_REGEX, 'Enter your date of birth as DD/MM/YYYY')
       .refine((s) => {
         const dob = new Date(`${s}T12:00:00`);
         if (Number.isNaN(dob.getTime())) return false;
@@ -80,7 +79,7 @@ const profileSchema = z
         const m = today.getMonth() - dob.getMonth();
         if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) age--;
         return age >= 18 && age <= 100;
-      }, 'You must be between 18 and 100 years old'),
+      }, 'You should be 18 and above'),
     gender: z
       .string()
       .refine((v) => v === 'male' || v === 'female', 'Select gender'),
@@ -129,8 +128,6 @@ export default function SignupProfileScreen() {
   const { refreshUser, signOut } = useCurrentUser();
   const [consentChecked, setConsentChecked] = useState(false);
   const [consentError, setConsentError] = useState<string | null>(null);
-  const [stateModalOpen, setStateModalOpen] = useState(false);
-  const [stateSearch, setStateSearch] = useState('');
   const [accessToken, setAccessTokenState] = useState<string | null>(null);
   const [tokenChecked, setTokenChecked] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -259,11 +256,11 @@ export default function SignupProfileScreen() {
   };
 
   const onTermsPress = () => {
-    Linking.openURL('https://example.com/terms');
+    Linking.openURL('https://plz.ng');
   };
 
   const onPrivacyPress = () => {
-    Linking.openURL('https://example.com/privacy');
+    Linking.openURL('https://plz.ng/privacy/');
   };
 
   const onGoToLogin = () => {
@@ -392,18 +389,13 @@ export default function SignupProfileScreen() {
           <Controller
             control={control}
             name="dateOfBirth"
-            render={({ field: { onChange, onBlur, value } }) => (
-              <FormTextInput
-                label="Date of birth"
-                placeholder="YYYY-MM-DD"
-                value={value}
-                onChangeText={onChange}
-                onBlur={onBlur}
-                keyboardType="numbers-and-punctuation"
+            render={({ field: { onChange, value } }) => (
+              <DateOfBirthPicker
+                value={value ?? ''}
+                onChange={onChange}
                 hint="You must be 18 or older"
                 error={errors.dateOfBirth?.message}
-                accessibilityLabel="Date of birth"
-                editable={!needsSignIn}
+                disabled={needsSignIn}
               />
             )}
           />
@@ -440,68 +432,16 @@ export default function SignupProfileScreen() {
           />
           {errors.gender ? <Text style={styles.fieldError}>{errors.gender.message}</Text> : null}
 
-          <Text style={styles.fieldLabel}>State (Nigeria)</Text>
           <Controller
             control={control}
             name="state"
             render={({ field: { value, onChange } }) => (
-              <>
-                <Pressable
-                  onPress={() => {
-                    if (!needsSignIn) setStateModalOpen(true);
-                  }}
-                  style={[styles.stateTrigger, errors.state && styles.stateTriggerError]}
-                  accessibilityRole="button"
-                  accessibilityLabel="Select state"
-                >
-                  <Text style={value ? styles.stateTriggerText : styles.stateTriggerPlaceholder}>
-                    {value || 'Tap to select state'}
-                  </Text>
-                  <Ionicons name="chevron-down" size={20} color={COLORS.body} />
-                </Pressable>
-                {errors.state ? <Text style={styles.fieldError}>{errors.state.message}</Text> : null}
-                <Modal visible={stateModalOpen} animationType="slide" transparent>
-                  <View style={styles.modalRoot}>
-                    <Pressable
-                      style={styles.modalBackdrop}
-                      onPress={() => {
-                        setStateModalOpen(false);
-                        setStateSearch('');
-                      }}
-                    />
-                    <View style={styles.modalSheet}>
-                      <Text style={styles.modalTitle}>Select state</Text>
-                      <TextInput
-                        style={styles.stateSearch}
-                        placeholder="Search"
-                        placeholderTextColor="#9CA3AF"
-                        value={stateSearch}
-                        onChangeText={setStateSearch}
-                      />
-                      <FlatList
-                        data={NIGERIAN_STATES.filter((s) =>
-                          s.toLowerCase().includes(stateSearch.trim().toLowerCase())
-                        )}
-                        keyExtractor={(item) => item}
-                        keyboardShouldPersistTaps="handled"
-                        style={styles.stateList}
-                        renderItem={({ item }) => (
-                          <Pressable
-                            style={styles.stateItem}
-                            onPress={() => {
-                              onChange(item);
-                              setStateModalOpen(false);
-                              setStateSearch('');
-                            }}
-                          >
-                            <Text style={styles.stateItemText}>{item}</Text>
-                          </Pressable>
-                        )}
-                      />
-                    </View>
-                  </View>
-                </Modal>
-              </>
+              <NigerianStatePicker
+                value={value ?? ''}
+                onChange={onChange}
+                error={errors.state?.message}
+                disabled={needsSignIn}
+              />
             )}
           />
 
@@ -829,71 +769,5 @@ const styles = StyleSheet.create({
   },
   disabledChip: {
     opacity: 0.5,
-  },
-  stateTrigger: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    marginBottom: 12,
-    backgroundColor: '#FFFFFF',
-  },
-  stateTriggerError: {
-    borderColor: COLORS.error,
-  },
-  stateTriggerText: {
-    fontSize: 16,
-    color: COLORS.heading,
-  },
-  stateTriggerPlaceholder: {
-    fontSize: 16,
-    color: '#9CA3AF',
-  },
-  modalRoot: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.45)',
-  },
-  modalBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  modalSheet: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    padding: 16,
-    maxHeight: '72%',
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: COLORS.heading,
-    marginBottom: 12,
-  },
-  stateSearch: {
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 16,
-    marginBottom: 8,
-    color: COLORS.heading,
-  },
-  stateList: {
-    flexGrow: 0,
-  },
-  stateItem: {
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
-  },
-  stateItemText: {
-    fontSize: 16,
-    color: COLORS.heading,
   },
 });

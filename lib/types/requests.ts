@@ -1,5 +1,13 @@
 import type { BrowseRequest } from '@/lib/types/home';
 
+export {
+  getPlatformFee,
+  getRequestReceives,
+  getVatOnPlatformFee,
+  PLATFORM_FEE_PERCENT,
+  VAT_ON_PLATFORM_FEE_PERCENT,
+} from '@/lib/withdrawal-fees';
+
 export interface RequestDetail extends BrowseRequest {
   /** Beg owner — hide donation UI when same as current user */
   ownerUserId?: string;
@@ -9,6 +17,10 @@ export interface RequestDetail extends BrowseRequest {
   approved?: boolean;
   /** From API: false when expired, funded, cancelled, or not yet approved. */
   canDonate?: boolean;
+  /** Raw beg status from API (e.g. active, funded, expired, withdrawn). */
+  begStatus?: string;
+  /** True after owner has withdrawn donations for this request. */
+  isWithdrawn?: boolean;
   /** Set when the signed-in viewer has donated to this request. */
   viewerDonation?: {
     totalAmount: number;
@@ -23,19 +35,4 @@ export interface RequestDetail extends BrowseRequest {
   gifts: number;
   crowns: number;
   messages: number;
-}
-
-const PLATFORM_FEE_PERCENT = 5;
-const VAT_ON_PLATFORM_FEE_PERCENT = 7.5;
-
-export function getRequestReceives(amount: number): number {
-  return amount - getPlatformFee(amount) - getVatOnPlatformFee(amount);
-}
-
-export function getPlatformFee(amount: number): number {
-  return Math.round((amount * PLATFORM_FEE_PERCENT) / 100);
-}
-
-export function getVatOnPlatformFee(amount: number): number {
-  return Math.round((getPlatformFee(amount) * VAT_ON_PLATFORM_FEE_PERCENT) / 100);
 }

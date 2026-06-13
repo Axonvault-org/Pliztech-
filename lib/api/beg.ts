@@ -319,6 +319,8 @@ export type BegFeedItem = {
   percentFunded?: number;
   status: string;
   approved: boolean;
+  isWithdrawn?: boolean;
+  withdrawnAt?: string | null;
   expiresAt: string;
   createdAt: string;
   timeRemaining?: string;
@@ -462,6 +464,7 @@ export async function getMyBegs(
 function mapBegStatusToActivityStatus(beg: BegFeedItem): ActivityRequestStatus {
   const s = beg.status;
   if (s === 'funded') return 'funded';
+  if (s === 'withdrawn' || (beg.isWithdrawn && s === 'expired')) return 'withdrawn';
   if (s === 'cancelled') return 'cancelled';
   if (s === 'expired') return 'expired';
   if (s === 'rejected') return 'cancelled';
@@ -482,6 +485,7 @@ function mapBegStatusToActivityStatus(beg: BegFeedItem): ActivityRequestStatus {
  * when the beg is no longer active (fully funded, expired, cancelled, etc.).
  */
 export function isBegPastOrClosedForDonorNav(beg: BegFeedItem): boolean {
+  if (beg.isWithdrawn) return true;
   const st = mapBegStatusToActivityStatus(beg);
   return st !== 'active' && st !== 'pending';
 }
@@ -788,5 +792,7 @@ export function begFeedItemToRequestDetail(beg: BegFeedItem): RequestDetail {
     approved: beg.approved,
     canDonate,
     viewerDonation: beg.viewerDonation ?? null,
+    begStatus: beg.status,
+    isWithdrawn: Boolean(beg.isWithdrawn),
   };
 }

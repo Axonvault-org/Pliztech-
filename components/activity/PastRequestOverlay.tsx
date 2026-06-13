@@ -61,6 +61,8 @@ function statusMeta(status: ActivityRequestStatus): { label: string; showCheck: 
       return { label: 'Fully Funded', showCheck: true };
     case 'expired':
       return { label: 'Ended', showCheck: false };
+    case 'withdrawn':
+      return { label: 'Withdrawn early', showCheck: false };
     case 'cancelled':
       return { label: 'Cancelled', showCheck: false };
     case 'pending':
