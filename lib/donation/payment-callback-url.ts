@@ -5,10 +5,16 @@ const CALLBACK_PATH = '/payment/callback';
 
 /** HTTPS callback for web payment redirects (must match backend FRONTEND_URL). */
 export function getPaymentWebCallbackUrl(): string {
+  // Prefer the live browser origin so production web works even when the static
+  // export was built without EXPO_PUBLIC_FRONTEND_URL (e.g. Vercel env missing).
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.origin) {
+    return `${window.location.origin.replace(/\/$/, '')}${CALLBACK_PATH}`;
+  }
+
   const base = (
     process.env.EXPO_PUBLIC_FRONTEND_URL?.trim() ||
     process.env.EXPO_PUBLIC_WEB_APP_URL?.trim() ||
-    'http://localhost:8081'
+    (__DEV__ ? 'http://localhost:8081' : 'https://app.plz.ng')
   ).replace(/\/$/, '');
   return `${base}${CALLBACK_PATH}`;
 }
