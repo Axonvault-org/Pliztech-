@@ -6,3 +6,4 @@ export function begAcceptsDonations(beg: BegFeedItem): boolean {
   if (!beg.approved) return false;
   return !isBegPastOrClosedForDonorNav(beg);
 }
+
