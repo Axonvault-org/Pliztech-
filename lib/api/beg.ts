@@ -1,5 +1,6 @@
 import { apiUrl } from '@/constants/api';
 import { REQUEST_CATEGORIES } from '@/constants/categories';
+import { begAcceptsDonations } from '@/lib/beg/can-donate';
 import { avatarColorFromSeed } from '@/contexts/CurrentUserContext';
 import type { ActivityRequest, ActivityRequestStatus } from '@/lib/types/activity';
 import type { BrowseRequest, TrendingRequest } from '@/lib/types/home';
@@ -614,6 +615,8 @@ export function feedBegToBrowseRequest(beg: BegFeedItem): BrowseRequest {
     percent: Math.min(100, Math.max(0, pct)),
     createdAt: beg.createdAt,
     expiresAt: beg.expiresAt,
+    ownerUserId: beg.userId,
+    canDonate: begAcceptsDonations(beg),
   };
 }
 
@@ -660,6 +663,8 @@ export function feedBegToTrendingRequest(beg: BegFeedItem): TrendingRequest {
     goal,
     percent: Math.min(100, Math.max(0, pct)),
     createdAt: beg.createdAt,
+    ownerUserId: beg.userId,
+    canDonate: begAcceptsDonations(beg),
   };
 }
 

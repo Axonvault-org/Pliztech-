@@ -111,8 +111,14 @@ const REQUEST_DETAIL_MAX_WIDTH = 960;
 export default function RequestDetailScreen() {
   const { user, signOut } = useCurrentUser();
   const anonymousModeEnabled = user?.profile?.isAnonymous ?? false;
-  const params = useLocalSearchParams<{ id: string }>();
+  const params = useLocalSearchParams<{ id: string; donate?: string }>();
   const id = typeof params.id === 'string' ? params.id : params.id?.[0];
+  const donateIntent = params.donate === '1' || params.donate === 'true';
+
+  const scrollRef = useRef<ScrollView>(null);
+  const pageContentRef = useRef<View>(null);
+  const donationAnchorRef = useRef<View>(null);
+  const pendingDonateScroll = useRef(false);
 
   const [request, setRequest] = useState<RequestDetail | null>(null);
   const [loading, setLoading] = useState(Boolean(id));
@@ -149,6 +155,31 @@ export default function RequestDetailScreen() {
   useEffect(() => {
     void loadRequest();
   }, [loadRequest]);
+
+  const scrollToDonationSection = useCallback(() => {
+    const pageNode = pageContentRef.current;
+    const anchorNode = donationAnchorRef.current;
+    if (!pageNode || !anchorNode) return;
+    anchorNode.measureLayout(
+      pageNode,
+      (_x, y) => {
+        scrollRef.current?.scrollTo({ y: Math.max(0, y - 16), animated: true });
+      },
+      () => {}
+    );
+  }, []);
+
+  useEffect(() => {
+    if (
+      donateIntent &&
+      !loading &&
+      request &&
+      user?.id !== request.ownerUserId &&
+      request.canDonate !== false
+    ) {
+      pendingDonateScroll.current = true;
+    }
+  }, [donateIntent, loading, request, user?.id]);
 
   const loadReactions = useCallback(async () => {
     if (!id) return;
@@ -589,12 +620,13 @@ export default function RequestDetailScreen() {
         onClose={() => setProfileModalUserId(null)}
       />
       <ScrollView
+        ref={scrollRef}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         nestedScrollEnabled
       >
-        <View style={styles.pageContent}>
+        <View ref={pageContentRef} style={styles.pageContent}>
           <RequestDetailHeader
             onReportPress={() =>
               router.push('/(tabs)/report-issue' as import('expo-router').Href)
@@ -867,6 +899,15 @@ export default function RequestDetailScreen() {
 
               {visitorCanDonate ? (
             <>
+              <View
+                ref={donationAnchorRef}
+                collapsable={false}
+                onLayout={() => {
+                  if (!pendingDonateScroll.current) return;
+                  pendingDonateScroll.current = false;
+                  requestAnimationFrame(() => scrollToDonationSection());
+                }}
+              />
               <Text style={styles.sectionTitle}>Choose Amount</Text>
               <View style={styles.amountGrid}>
                 {AMOUNT_OPTIONS.map((opt) => (
