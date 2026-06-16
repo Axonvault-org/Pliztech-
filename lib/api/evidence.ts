@@ -16,6 +16,7 @@ export type EvidenceUploadFile = {
   uri: string;
   name: string;
   type: string;
+  file?: File;
 };
 
 export async function getBegEvidence(
@@ -56,11 +57,21 @@ export async function uploadBegEvidence(
   file: EvidenceUploadFile
 ): Promise<BegEvidenceItem> {
   const body = new FormData();
-  body.append('evidence', {
-    uri: file.uri,
-    name: file.name,
-    type: file.type,
-  } as unknown as Blob);
+
+  if (isWebAuthEnvironment()) {
+    if (file.file) {
+      body.append('evidence', file.file, file.name);
+    } else {
+      const blob = await fetch(file.uri).then((response) => response.blob());
+      body.append('evidence', blob, file.name);
+    }
+  } else {
+    body.append('evidence', {
+      uri: file.uri,
+      name: file.name,
+      type: file.type,
+    } as unknown as Blob);
+  }
 
   const res = await fetch(apiUrl(`/api/begs/${encodeURIComponent(begId)}/evidence`), {
     method: 'POST',
