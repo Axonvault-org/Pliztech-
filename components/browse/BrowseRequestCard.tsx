@@ -5,7 +5,9 @@ import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Text } from '@/components/Text';
 
 import { ProgressBar } from '@/components/ProgressBar';
+import { BegCardDonateButton } from '@/components/request/BegCardDonateButton';
 import { RequesterAvatar } from '@/components/request/RequesterAvatar';
+import { useCurrentUser } from '@/contexts/CurrentUserContext';
 import { REQUEST_CATEGORIES } from '@/constants/categories';
 
 import type { BrowseRequest } from '@/lib/types/home';
@@ -30,6 +32,7 @@ export interface BrowseRequestCardProps {
 }
 
 export function BrowseRequestCard({ request, onPress }: BrowseRequestCardProps) {
+  const { user } = useCurrentUser();
   const {
     id,
     name,
@@ -44,11 +47,15 @@ export function BrowseRequestCard({ request, onPress }: BrowseRequestCardProps) 
     raised,
     goal,
     percent,
+    ownerUserId,
+    canDonate,
   } = request;
 
   const categoryIcon = getCategoryIcon(categoryId);
   const href = { pathname: '/(tabs)/request/[id]' as const, params: { id } };
   const isAnonymous = name.toLowerCase() === 'anonymous';
+  const isOwner = Boolean(user?.id && ownerUserId && user.id === ownerUserId);
+  const showActionButton = isOwner || Boolean(canDonate);
 
   return (
     <View style={styles.card}>
@@ -119,6 +126,16 @@ export function BrowseRequestCard({ request, onPress }: BrowseRequestCardProps) 
           <ProgressBar percent={percent} trackColor="#EEEEEE" fillColor="#2196F3" />
         </TouchableOpacity>
       </Link>
+
+      {showActionButton ? (
+        <View style={styles.donateRow}>
+          <BegCardDonateButton
+            begId={id}
+            recipientName={name}
+            variant={isOwner ? 'view' : 'donate'}
+          />
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -226,5 +243,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: ACCENT_BLUE,
+  },
+  donateRow: {
+    marginTop: 12,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
   },
 });

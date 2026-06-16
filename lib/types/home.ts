@@ -14,6 +14,9 @@ export type TrendingRequest = {
   percent: number;
   /** ISO date for client-side sort (API). */
   createdAt?: string;
+  ownerUserId?: string;
+  /** When true, show the quick donate CTA on the card. */
+  canDonate?: boolean;
 };
 
 /** Home “My recent contributions” row (API-mapped). */
@@ -44,4 +47,6 @@ export type BrowseRequest = {
   /** ISO timestamps when mapped from API (for client-side sort). */
   createdAt?: string;
   expiresAt?: string;
+  ownerUserId?: string;
+  canDonate?: boolean;
 };
