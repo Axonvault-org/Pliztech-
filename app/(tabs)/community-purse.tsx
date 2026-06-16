@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import * as WebBrowser from 'expo-web-browser';
 import { router, useLocalSearchParams } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -17,6 +17,7 @@ import {
 import { CTAButton } from '@/components/CTAButton';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
+import { useCurrentUser } from '@/contexts/CurrentUserContext';
 import {
   getCommunityPulseFeed,
   getCommunityPulseWebRedirectUrl,
@@ -25,13 +26,12 @@ import {
   type CommunityPulseFeed,
 } from '@/lib/api/community-pulse';
 import { formatPlizApiErrorForUser } from '@/lib/api/types';
-import { useCurrentUser } from '@/contexts/CurrentUserContext';
+import { getAccessTokenOrTryRefresh } from '@/lib/auth/session-expired';
 import {
   getPaymentNativeCallbackUrl,
   referenceFromPaymentRedirectUrl,
   transactionIdFromPaymentRedirectUrl,
 } from '@/lib/donation/payment-callback-url';
-import { getAccessTokenOrTryRefresh } from '@/lib/auth/session-expired';
 import { digitsOnly, formatAmountInput } from '@/lib/money/input-format';
 
 function formatNaira(amount: number): string {
@@ -44,7 +44,7 @@ function firstQuery(value: string | string[] | undefined): string {
   return '';
 }
 
-const QUICK_AMOUNTS = [1000, 2500, 5000, 10000];
+const QUICK_AMOUNTS = [10000, 25000, 50000, 100000];
 
 export default function CommunityPulseScreen() {
   const { user } = useCurrentUser();
@@ -56,7 +56,7 @@ export default function CommunityPulseScreen() {
   }>();
   const [feed, setFeed] = useState<CommunityPulseFeed | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [amount, setAmount] = useState('1,000');
+  const [amount, setAmount] = useState('10,000');
   const [message, setMessage] = useState('');
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -190,6 +190,16 @@ export default function CommunityPulseScreen() {
           <View style={styles.backButton} />
         </View>
 
+        <View style={styles.infoPanel}>
+          <Ionicons name="information-circle-outline" size={22} color="#2E8BEA" />
+          <Text style={styles.infoText}>
+            The Community Purse is a shared pool funded by generous individuals and
+            organizations. Funds from the purse are used to support requests across the Plz
+            community, helping ensure that more people receive timely support when they need it
+            most.
+          </Text>
+        </View>
+
         {verifyMessage ? (
           <View style={styles.notice}>
             <Ionicons name="heart-circle-outline" size={22} color="#2E8BEA" />
@@ -198,7 +208,7 @@ export default function CommunityPulseScreen() {
         ) : null}
 
         <View style={styles.donatePanel}>
-          <Text style={styles.sectionTitle}>Support the community fund</Text>
+          <Text style={styles.sectionTitle}>Support Many People</Text>
           <View style={styles.amountRow}>
             {QUICK_AMOUNTS.map((n) => (
               <Pressable
@@ -289,6 +299,23 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
     color: '#1F2937',
+  },
+  infoPanel: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    backgroundColor: '#EFF6FF',
+    marginBottom: 16,
+  },
+  infoText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 19,
+    color: '#374151',
   },
   notice: {
     flexDirection: 'row',

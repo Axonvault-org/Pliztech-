@@ -257,7 +257,7 @@ export default function RequestDetailScreen() {
   }, [loadOwnerWithdrawal, request?.raised, request?.isWithdrawn]);
 
   const loadEvidence = useCallback(async () => {
-    if (!id || !request?.ownerUserId || !user?.id || user.id !== request.ownerUserId) {
+    if (!id || !request?.ownerUserId) {
       setEvidence([]);
       return;
     }
@@ -274,7 +274,7 @@ export default function RequestDetailScreen() {
     } finally {
       setEvidenceLoading(false);
     }
-  }, [id, request?.ownerUserId, user?.id]);
+  }, [id, request?.ownerUserId]);
 
   useEffect(() => {
     void loadEvidence();
@@ -602,6 +602,7 @@ export default function RequestDetailScreen() {
 
   const isOwner =
     Boolean(user?.id && ownerUserId && user.id === ownerUserId);
+  const canViewEvidence = Boolean(ownerUserId);
   const isAwaitingApproval = isOwner && approved === false;
   const ownerWithdrawalPending =
     ownerWithdrawal != null &&
@@ -902,16 +903,18 @@ export default function RequestDetailScreen() {
             ) : null}
           </View>
 
-          {isOwner ? (
-            <>
-              <View style={styles.evidencePanel}>
-                <View style={styles.evidenceHeader}>
-                  <View>
-                    <Text style={styles.evidenceTitle}>Evidence</Text>
-                    <Text style={styles.evidenceSubtitle}>
-                      Photos are deleted when the request is fully funded.
-                    </Text>
-                  </View>
+          {canViewEvidence ? (
+            <View style={styles.evidencePanel}>
+              <View style={styles.evidenceHeader}>
+                <View style={styles.evidenceHeaderCopy}>
+                  <Text style={styles.evidenceTitle}>Evidence</Text>
+                  <Text style={styles.evidenceSubtitle}>
+                    {isOwner
+                      ? 'Photos are deleted when the request is fully funded.'
+                      : 'Shared by the requester to help donors review this request.'}
+                  </Text>
+                </View>
+                {isOwner ? (
                   <Pressable
                     style={styles.evidenceAddButton}
                     onPress={() => void onAddEvidence()}
@@ -923,41 +926,47 @@ export default function RequestDetailScreen() {
                       {evidenceUploading ? 'Uploading…' : 'Add'}
                     </Text>
                   </Pressable>
-                </View>
-                {evidenceLoading ? (
-                  <Text style={styles.evidenceEmpty}>Loading evidence…</Text>
-                ) : evidence.length === 0 ? (
-                  <Text style={styles.evidenceEmpty}>No evidence attached yet.</Text>
-                ) : (
-                  evidence.map((item) => (
-                    <View key={item.id} style={styles.evidenceRow}>
-                      <View style={styles.evidenceRowCopy}>
-                        <Text style={styles.evidenceFileName} numberOfLines={1}>
-                          {item.fileName}
-                        </Text>
-                        <Text style={styles.evidenceMeta}>
-                          {item.fileType} · {Math.ceil(item.fileSize / 1024)} KB
-                        </Text>
-                      </View>
-                      {item.url ? (
-                        <Pressable
-                          style={styles.evidenceIconButton}
-                          onPress={() => void Linking.openURL(item.url!)}
-                        >
-                          <Ionicons name="open-outline" size={18} color="#2E8BEA" />
-                        </Pressable>
-                      ) : null}
+                ) : null}
+              </View>
+              {evidenceLoading ? (
+                <Text style={styles.evidenceEmpty}>Loading evidence…</Text>
+              ) : evidence.length === 0 ? (
+                <Text style={styles.evidenceEmpty}>No evidence attached yet.</Text>
+              ) : (
+                evidence.map((item) => (
+                  <View key={item.id} style={styles.evidenceRow}>
+                    <View style={styles.evidenceRowCopy}>
+                      <Text style={styles.evidenceFileName} numberOfLines={1}>
+                        {item.fileName}
+                      </Text>
+                      <Text style={styles.evidenceMeta}>
+                        {item.fileType} · {Math.ceil(item.fileSize / 1024)} KB
+                      </Text>
+                    </View>
+                    {item.url ? (
+                      <Pressable
+                        style={styles.evidenceIconButton}
+                        onPress={() => void Linking.openURL(item.url!)}
+                      >
+                        <Ionicons name="open-outline" size={18} color="#2E8BEA" />
+                      </Pressable>
+                    ) : null}
+                    {isOwner ? (
                       <Pressable
                         style={styles.evidenceIconButton}
                         onPress={() => onDeleteEvidence(item)}
                       >
                         <Ionicons name="trash-outline" size={18} color="#DC2626" />
                       </Pressable>
-                    </View>
-                  ))
-                )}
-              </View>
+                    ) : null}
+                  </View>
+                ))
+              )}
+            </View>
+          ) : null}
 
+          {isOwner ? (
+            <>
               <RequestDonorList
                 donations={begDonations}
                 total={donorTotal}
@@ -1516,6 +1525,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 12,
     marginBottom: 10,
+  },
+  evidenceHeaderCopy: {
+    flex: 1,
   },
   evidenceTitle: {
     fontSize: 16,

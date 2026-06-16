@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
 import { Text } from '@/components/Text';
 
@@ -45,7 +45,7 @@ export function QuickActions({
         <ActionCard
           icon="pulse-outline"
           title="Community Purse"
-          subtitle="Support the shared fund"
+          subtitle="Support Many People"
           variant="solid"
           onPress={onCommunityPulse}
         />
