@@ -3,7 +3,6 @@ import * as WebBrowser from 'expo-web-browser';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Platform,
   Pressable,
@@ -56,7 +55,6 @@ export default function CommunityPulseScreen() {
     transaction_id?: string;
   }>();
   const [feed, setFeed] = useState<CommunityPulseFeed | null>(null);
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [amount, setAmount] = useState('1,000');
   const [message, setMessage] = useState('');
@@ -84,7 +82,6 @@ export default function CommunityPulseScreen() {
     } catch (e) {
       Alert.alert('Community Purse', formatPlizApiErrorForUser(e));
     } finally {
-      setLoading(false);
       setRefreshing(false);
     }
   }, []);
@@ -169,8 +166,6 @@ export default function CommunityPulseScreen() {
     }
   }
 
-  const fund = feed?.fund;
-
   return (
     <Screen backgroundColor="#FFFFFF">
       <ScrollView
@@ -201,20 +196,6 @@ export default function CommunityPulseScreen() {
             <Text style={styles.noticeText}>{verifyMessage}</Text>
           </View>
         ) : null}
-
-        <View style={styles.balancePanel}>
-          <Text style={styles.panelLabel}>Available community fund</Text>
-          {loading && !fund ? (
-            <ActivityIndicator color="#2E8BEA" />
-          ) : (
-            <Text style={styles.balanceValue}>{formatNaira(fund?.available_balance ?? 0)}</Text>
-          )}
-          <View style={styles.balanceMetaRow}>
-            <Text style={styles.balanceMeta}>{formatNaira(fund?.total_received ?? 0)} received</Text>
-            <Text style={styles.balanceDot}>·</Text>
-            <Text style={styles.balanceMeta}>{fund?.donation_count ?? 0} donations</Text>
-          </View>
-        </View>
 
         <View style={styles.donatePanel}>
           <Text style={styles.sectionTitle}>Support the community fund</Text>
@@ -276,7 +257,6 @@ export default function CommunityPulseScreen() {
                 <Text style={styles.donorName}>{d.donor_name}</Text>
                 {d.message ? <Text style={styles.donorMessage}>{d.message}</Text> : null}
               </View>
-              <Text style={styles.donationAmount}>{formatNaira(d.amount)}</Text>
             </View>
           ))
         )}
@@ -323,35 +303,6 @@ const styles = StyleSheet.create({
     flex: 1,
     color: '#1F2937',
     fontSize: 14,
-  },
-  balancePanel: {
-    borderRadius: 16,
-    backgroundColor: '#172033',
-    padding: 20,
-    marginBottom: 16,
-  },
-  panelLabel: {
-    color: 'rgba(255,255,255,0.75)',
-    fontSize: 13,
-    marginBottom: 8,
-  },
-  balanceValue: {
-    color: '#FFFFFF',
-    fontSize: 34,
-    fontWeight: '800',
-  },
-  balanceMetaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 8,
-    gap: 8,
-  },
-  balanceMeta: {
-    color: 'rgba(255,255,255,0.72)',
-    fontSize: 13,
-  },
-  balanceDot: {
-    color: 'rgba(255,255,255,0.45)',
   },
   donatePanel: {
     borderWidth: 1,
@@ -441,9 +392,6 @@ const styles = StyleSheet.create({
     paddingVertical: 18,
   },
   donationRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 12,
     paddingVertical: 14,
     borderBottomWidth: 1,
     borderBottomColor: '#F3F4F6',
@@ -456,9 +404,5 @@ const styles = StyleSheet.create({
     marginTop: 3,
     color: '#6B7280',
     maxWidth: 280,
-  },
-  donationAmount: {
-    fontWeight: '800',
-    color: '#059669',
   },
 });
