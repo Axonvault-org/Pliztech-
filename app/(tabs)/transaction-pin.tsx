@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, TextInput, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, TextInput, View } from 'react-native';
 
 import { CTAButton } from '@/components/CTAButton';
 import { AppHeaderTitleRow } from '@/components/layout/AppHeaderTitleRow';
@@ -31,6 +31,7 @@ export default function TransactionPinScreen() {
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const loadStatus = useCallback(
     async (retryAfterRefresh = false) => {
@@ -73,6 +74,7 @@ export default function TransactionPinScreen() {
 
   const handleSave = async () => {
     setError(null);
+    setSuccessMessage(null);
     if (pin.length !== 4 || confirmPin.length !== 4) {
       setError('Enter and confirm your 4-digit PIN.');
       return;
@@ -99,12 +101,20 @@ export default function TransactionPinScreen() {
       } else {
         await setupTransactionPin(token, pin);
       }
-      Alert.alert(
-        hasPin ? 'PIN changed' : 'PIN set',
+      setCurrentPin('');
+      setPin('');
+      setConfirmPin('');
+      setStatus((prev) => ({
+        hasPin: true,
+        locked: false,
+        lockedUntil: null,
+        failedAttempts: 0,
+        maxFailedAttempts: prev?.maxFailedAttempts ?? 5,
+      }));
+      setSuccessMessage(
         hasPin
           ? 'Your Transaction PIN has been updated.'
-          : 'Your Transaction PIN is ready for secure transactions.',
-        [{ text: 'OK', onPress: () => router.back() }]
+          : 'Your Transaction PIN is ready for secure transactions.'
       );
     } catch (e) {
       setError(formatPlizApiErrorForUser(e));
@@ -139,7 +149,10 @@ export default function TransactionPinScreen() {
               <TextInput
                 style={styles.input}
                 value={currentPin}
-                onChangeText={(value) => setCurrentPin(normalizePin(value))}
+                onChangeText={(value) => {
+                  setSuccessMessage(null);
+                  setCurrentPin(normalizePin(value));
+                }}
                 placeholder="Enter current PIN"
                 placeholderTextColor="#9CA3AF"
                 keyboardType="number-pad"
@@ -153,7 +166,10 @@ export default function TransactionPinScreen() {
           <TextInput
             style={styles.input}
             value={pin}
-            onChangeText={(value) => setPin(normalizePin(value))}
+            onChangeText={(value) => {
+              setSuccessMessage(null);
+              setPin(normalizePin(value));
+            }}
             placeholder="Enter 4-digit PIN"
             placeholderTextColor="#9CA3AF"
             keyboardType="number-pad"
@@ -165,7 +181,10 @@ export default function TransactionPinScreen() {
           <TextInput
             style={styles.input}
             value={confirmPin}
-            onChangeText={(value) => setConfirmPin(normalizePin(value))}
+            onChangeText={(value) => {
+              setSuccessMessage(null);
+              setConfirmPin(normalizePin(value));
+            }}
             placeholder="Re-enter 4-digit PIN"
             placeholderTextColor="#9CA3AF"
             keyboardType="number-pad"
@@ -178,14 +197,32 @@ export default function TransactionPinScreen() {
               Your PIN is temporarily locked. Please try again later.
             </Text>
           ) : null}
+          {successMessage ? (
+            <View style={styles.successBox}>
+              <Ionicons name="checkmark-circle" size={20} color="#047857" />
+              <Text style={styles.successText}>{successMessage}</Text>
+            </View>
+          ) : null}
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
           <CTAButton
-            label={saving ? 'Saving…' : hasPin ? 'Change PIN' : 'Set PIN'}
-            onPress={() => void handleSave()}
+            label={successMessage ? 'Done' : saving ? 'Saving…' : hasPin ? 'Change PIN' : 'Set PIN'}
+            onPress={() => {
+              if (successMessage) {
+                router.back();
+                return;
+              }
+              void handleSave();
+            }}
             variant="gradient"
-            disabled={!canSubmit || saving || Boolean(status?.locked)}
-            accessibilityLabel={hasPin ? 'Change Transaction PIN' : 'Set Transaction PIN'}
+            disabled={!successMessage && (!canSubmit || saving || Boolean(status?.locked))}
+            accessibilityLabel={
+              successMessage
+                ? 'Done'
+                : hasPin
+                  ? 'Change Transaction PIN'
+                  : 'Set Transaction PIN'
+            }
           />
         </View>
       )}
@@ -245,6 +282,24 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: '#B45309',
     marginBottom: 12,
+  },
+  successBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    borderRadius: 12,
+    backgroundColor: '#ECFDF5',
+    marginBottom: 14,
+  },
+  successText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#047857',
+    fontWeight: '600',
   },
   errorText: {
     fontSize: 14,

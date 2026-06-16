@@ -1,10 +1,9 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect } from '@react-navigation/native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   KeyboardAvoidingView,
   Modal,
@@ -71,6 +70,7 @@ import {
 const BLUE_BAR = '#2E8BEA';
 const ORANGE_BAR = '#F59E0B';
 const GREEN_BAR = '#059669';
+const TRANSACTION_PIN_ROUTE = '/(tabs)/transaction-pin' as Href;
 
 function formatNaira(amount: number) {
   return `₦${Math.round(amount).toLocaleString()}`;
@@ -244,8 +244,10 @@ export default function WithdrawFundsScreen() {
   const [step3LoadError, setStep3LoadError] = useState<string | null>(null);
   const [confirmSubmitting, setConfirmSubmitting] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
+  const [pinSetupRequired, setPinSetupRequired] = useState(false);
   const [pinModalOpen, setPinModalOpen] = useState(false);
   const [transactionPin, setTransactionPin] = useState('');
+  const [pinError, setPinError] = useState<string | null>(null);
 
   const load = useCallback(
     async (opts?: { background?: boolean; _retry?: boolean }) => {
@@ -650,6 +652,7 @@ export default function WithdrawFundsScreen() {
   const submitWithdrawalWithPin = async (pin: string) => {
     if (!paramBankAccountId || !paramBegId || !step3Summary) return;
     setConfirmError(null);
+    setPinError(null);
     setConfirmSubmitting(true);
     try {
       const result = await withUnauthorizedRecovery(signOut, (token) =>
@@ -669,9 +672,10 @@ export default function WithdrawFundsScreen() {
         },
       });
     } catch (e) {
-      setConfirmError(
+      setTransactionPin('');
+      setPinError(
         formatPlizApiErrorForUser(e) ||
-          'Your withdrawal could not be completed. Please try again later or contact support.'
+          'Your Transaction PIN could not be verified. Please try again.'
       );
     } finally {
       setConfirmSubmitting(false);
@@ -681,26 +685,23 @@ export default function WithdrawFundsScreen() {
   const handleConfirmWithdrawal = async () => {
     if (!paramBankAccountId || !paramBegId || !step3Summary || confirmSubmitting) return;
     setConfirmError(null);
+    setPinSetupRequired(false);
     try {
       const pinStatus = await withUnauthorizedRecovery(signOut, (token) =>
         getTransactionPinStatus(token)
       );
       if (!pinStatus.hasPin) {
-        Alert.alert(
-          'Set Transaction PIN',
-          'Create a 4-digit Transaction PIN before withdrawing funds.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Set PIN', onPress: () => router.push('/transaction-pin' as never) },
-          ]
-        );
+        setPinSetupRequired(true);
+        setConfirmError('Create a 4-digit Transaction PIN before withdrawing funds.');
         return;
       }
       if (pinStatus.locked) {
         setConfirmError('Your Transaction PIN is temporarily locked. Please try again later.');
         return;
       }
+      setPinSetupRequired(false);
       setTransactionPin('');
+      setPinError(null);
       setPinModalOpen(true);
     } catch (e) {
       setConfirmError(formatPlizApiErrorForUser(e) || 'Could not check Transaction PIN.');
@@ -1021,6 +1022,19 @@ export default function WithdrawFundsScreen() {
                   />
                   <WithdrawSettlementNotice />
                   <WithdrawFundsShieldNotice />
+                  {pinSetupRequired ? (
+                    <View style={styles.pinSetupNotice}>
+                      <View style={styles.pinSetupIcon}>
+                        <Ionicons name="key-outline" size={18} color="#2E8BEA" />
+                      </View>
+                      <View style={styles.pinSetupCopy}>
+                        <Text style={styles.pinSetupTitle}>Set Transaction PIN</Text>
+                        <Text style={styles.pinSetupText}>
+                          You need a 4-digit PIN to protect withdrawals from this account.
+                        </Text>
+                      </View>
+                    </View>
+                  ) : null}
                   {confirmError ? (
                     <Text style={styles.step3ConfirmError}>{confirmError}</Text>
                   ) : null}
@@ -1032,11 +1046,27 @@ export default function WithdrawFundsScreen() {
               <View style={[styles.step3Footer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
                 <View style={styles.ctaWrap}>
                   <CTAButton
-                    label={confirmSubmitting ? 'Submitting…' : 'Continue'}
-                    onPress={() => void handleConfirmWithdrawal()}
+                    label={
+                      pinSetupRequired
+                        ? 'Set Transaction PIN'
+                        : confirmSubmitting
+                          ? 'Submitting…'
+                          : 'Continue'
+                    }
+                    onPress={() => {
+                      if (pinSetupRequired) {
+                        router.push(TRANSACTION_PIN_ROUTE);
+                        return;
+                      }
+                      void handleConfirmWithdrawal();
+                    }}
                     variant="gradient"
                     disabled={confirmSubmitting}
-                    accessibilityLabel="Confirm and submit withdrawal"
+                    accessibilityLabel={
+                      pinSetupRequired
+                        ? 'Set Transaction PIN'
+                        : 'Confirm and submit withdrawal'
+                    }
                   />
                 </View>
               </View>
@@ -1070,9 +1100,10 @@ export default function WithdrawFundsScreen() {
               <TextInput
                 style={styles.pinInput}
                 value={transactionPin}
-                onChangeText={(value) =>
-                  setTransactionPin(value.replace(/\D/g, '').slice(0, 4))
-                }
+                onChangeText={(value) => {
+                  setPinError(null);
+                  setTransactionPin(value.replace(/\D/g, '').slice(0, 4));
+                }}
                 placeholder="••••"
                 placeholderTextColor="#9CA3AF"
                 keyboardType="number-pad"
@@ -1081,12 +1112,19 @@ export default function WithdrawFundsScreen() {
                 autoFocus
                 editable={!confirmSubmitting}
               />
+              {pinError ? (
+                <View style={styles.pinErrorBox}>
+                  <Ionicons name="alert-circle" size={18} color="#B91C1C" />
+                  <Text style={styles.pinErrorText}>{pinError}</Text>
+                </View>
+              ) : null}
               <View style={styles.pinActions}>
                 <Pressable
                   style={[styles.pinAction, styles.pinCancelAction]}
                   onPress={() => {
                     setPinModalOpen(false);
                     setTransactionPin('');
+                    setPinError(null);
                   }}
                   disabled={confirmSubmitting}
                 >
@@ -1273,6 +1311,40 @@ const styles = StyleSheet.create({
   ctaWrap: {
     width: '100%',
     alignItems: 'center',
+  },
+  pinSetupNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    borderRadius: 12,
+    backgroundColor: '#EFF6FF',
+    marginTop: 4,
+    marginBottom: 12,
+  },
+  pinSetupIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#DBEAFE',
+  },
+  pinSetupCopy: {
+    flex: 1,
+  },
+  pinSetupTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  pinSetupText: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#4B5563',
   },
   pressed: {
     opacity: 0.9,
@@ -1490,6 +1562,26 @@ const styles = StyleSheet.create({
     color: '#111827',
     backgroundColor: '#F9FAFB',
     marginBottom: 18,
+  },
+  pinErrorBox: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    backgroundColor: '#FEF2F2',
+    marginTop: -6,
+    marginBottom: 14,
+  },
+  pinErrorText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#B91C1C',
+    fontWeight: '600',
   },
   pinActions: {
     flexDirection: 'row',

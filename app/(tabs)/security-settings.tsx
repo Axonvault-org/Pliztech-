@@ -267,7 +267,7 @@ export default function SecuritySettingsScreen() {
               : 'Set a 4-digit PIN for payments and withdrawals'
           }
           badge={hasTransactionPin ? 'Enabled' : undefined}
-          onPress={() => router.push('/transaction-pin' as never)}
+          onPress={() => router.push('/(tabs)/transaction-pin' as never)}
           isLast
         />
       </SecuritySection>

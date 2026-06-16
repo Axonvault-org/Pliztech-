@@ -211,6 +211,7 @@ export default function CreateScreen() {
       uri: asset.uri,
       name: asset.fileName || `beg-evidence-${Date.now()}.jpg`,
       type: asset.mimeType || 'image/jpeg',
+      file: asset.file,
     });
   };
 

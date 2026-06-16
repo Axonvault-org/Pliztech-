@@ -298,6 +298,7 @@ export default function RequestDetailScreen() {
       uri: asset.uri,
       name: asset.fileName || `beg-evidence-${Date.now()}.jpg`,
       type: asset.mimeType || 'image/jpeg',
+      file: asset.file,
     };
     setEvidenceUploading(true);
     try {
