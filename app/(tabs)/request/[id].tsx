@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
+    Linking,
     Platform,
     Pressable,
     ScrollView,
@@ -30,12 +31,20 @@ import {
     getBegById,
 } from '@/lib/api/beg';
 import { initializeDonation, getBegDonations, type BegDonationApiItem } from '@/lib/api/donations';
+import {
+  deleteBegEvidence,
+  getBegEvidence,
+  uploadBegEvidence,
+  type BegEvidenceItem,
+  type EvidenceUploadFile,
+} from '@/lib/api/evidence';
 import { getReactions, toggleReaction, type ReactionsPayload } from '@/lib/api/reactions';
 import { formatPlizApiErrorForUser } from '@/lib/api/types';
 import { getPaymentDonationCallbackUrl, getPaymentWebCallbackUrl } from '@/lib/donation/payment-callback-url';
 import { savePendingDonationThankYou } from '@/lib/donation/pending-thank-you';
 import { savePendingPaymentCheckout } from '@/lib/donation/pending-payment-checkout';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
+import * as ImagePicker from 'expo-image-picker';
 import { openPaymentCheckout } from '@/lib/utils/open-payment-checkout';
 import { withUnauthorizedRecovery } from '@/lib/auth/session-expired';
 import { getAccessToken } from '@/lib/auth/access-token';
@@ -130,6 +139,9 @@ export default function RequestDetailScreen() {
   const [donorTotal, setDonorTotal] = useState(0);
   const [donorsLoading, setDonorsLoading] = useState(false);
   const [ownerWithdrawal, setOwnerWithdrawal] = useState<WithdrawalApiItem | null>(null);
+  const [evidence, setEvidence] = useState<BegEvidenceItem[]>([]);
+  const [evidenceLoading, setEvidenceLoading] = useState(false);
+  const [evidenceUploading, setEvidenceUploading] = useState(false);
 
   const loadRequest = useCallback(async () => {
     if (!id) {
@@ -243,6 +255,87 @@ export default function RequestDetailScreen() {
   useEffect(() => {
     void loadOwnerWithdrawal();
   }, [loadOwnerWithdrawal, request?.raised, request?.isWithdrawn]);
+
+  const loadEvidence = useCallback(async () => {
+    if (!id || !request?.ownerUserId || !user?.id || user.id !== request.ownerUserId) {
+      setEvidence([]);
+      return;
+    }
+    setEvidenceLoading(true);
+    try {
+      const token = await getAccessToken();
+      if (!token) {
+        setEvidence([]);
+        return;
+      }
+      setEvidence(await getBegEvidence(token, id));
+    } catch {
+      setEvidence([]);
+    } finally {
+      setEvidenceLoading(false);
+    }
+  }, [id, request?.ownerUserId, user?.id]);
+
+  useEffect(() => {
+    void loadEvidence();
+  }, [loadEvidence]);
+
+  const onAddEvidence = useCallback(async () => {
+    if (!id || evidenceUploading) return;
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Permission needed', 'Allow photo access to attach evidence.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: false,
+      quality: 0.85,
+    });
+    if (result.canceled || !result.assets[0]) return;
+    const asset = result.assets[0];
+    const file: EvidenceUploadFile = {
+      uri: asset.uri,
+      name: asset.fileName || `beg-evidence-${Date.now()}.jpg`,
+      type: asset.mimeType || 'image/jpeg',
+    };
+    setEvidenceUploading(true);
+    try {
+      const token = await getAccessToken();
+      if (!token) throw new Error('Please sign in again.');
+      await uploadBegEvidence(token, id, file);
+      await loadEvidence();
+    } catch (e) {
+      Alert.alert('Could not upload evidence', formatPlizApiErrorForUser(e));
+    } finally {
+      setEvidenceUploading(false);
+    }
+  }, [id, evidenceUploading, loadEvidence]);
+
+  const onDeleteEvidence = useCallback(
+    (item: BegEvidenceItem) => {
+      if (!id) return;
+      Alert.alert('Delete evidence?', 'This removes the file from your request.', [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () =>
+            void (async () => {
+              try {
+                const token = await getAccessToken();
+                if (!token) throw new Error('Please sign in again.');
+                await deleteBegEvidence(token, id, item.id);
+                await loadEvidence();
+              } catch (e) {
+                Alert.alert('Could not delete evidence', formatPlizApiErrorForUser(e));
+              }
+            })(),
+        },
+      ]);
+    },
+    [id, loadEvidence]
+  );
 
   /** Set when request loads or user changes amount — avoids errors on first paint. */
   const [selectedAmount, setSelectedAmount] = useState<number | null>(null);
@@ -522,7 +615,7 @@ export default function RequestDetailScreen() {
       amountRaised: raised,
       amountRequested: goal,
       isWithdrawn,
-      approved,
+      approved: approved === true,
     }) &&
     !ownerWithdrawalPending &&
     !ownerWithdrawalCompleted &&
@@ -810,6 +903,60 @@ export default function RequestDetailScreen() {
 
           {isOwner ? (
             <>
+              <View style={styles.evidencePanel}>
+                <View style={styles.evidenceHeader}>
+                  <View>
+                    <Text style={styles.evidenceTitle}>Evidence</Text>
+                    <Text style={styles.evidenceSubtitle}>
+                      Photos are deleted when the request is fully funded.
+                    </Text>
+                  </View>
+                  <Pressable
+                    style={styles.evidenceAddButton}
+                    onPress={() => void onAddEvidence()}
+                    disabled={evidenceUploading}
+                    accessibilityRole="button"
+                  >
+                    <Ionicons name="image-outline" size={17} color="#2E8BEA" />
+                    <Text style={styles.evidenceAddText}>
+                      {evidenceUploading ? 'Uploading…' : 'Add'}
+                    </Text>
+                  </Pressable>
+                </View>
+                {evidenceLoading ? (
+                  <Text style={styles.evidenceEmpty}>Loading evidence…</Text>
+                ) : evidence.length === 0 ? (
+                  <Text style={styles.evidenceEmpty}>No evidence attached yet.</Text>
+                ) : (
+                  evidence.map((item) => (
+                    <View key={item.id} style={styles.evidenceRow}>
+                      <View style={styles.evidenceRowCopy}>
+                        <Text style={styles.evidenceFileName} numberOfLines={1}>
+                          {item.fileName}
+                        </Text>
+                        <Text style={styles.evidenceMeta}>
+                          {item.fileType} · {Math.ceil(item.fileSize / 1024)} KB
+                        </Text>
+                      </View>
+                      {item.url ? (
+                        <Pressable
+                          style={styles.evidenceIconButton}
+                          onPress={() => void Linking.openURL(item.url!)}
+                        >
+                          <Ionicons name="open-outline" size={18} color="#2E8BEA" />
+                        </Pressable>
+                      ) : null}
+                      <Pressable
+                        style={styles.evidenceIconButton}
+                        onPress={() => onDeleteEvidence(item)}
+                      >
+                        <Ionicons name="trash-outline" size={18} color="#DC2626" />
+                      </Pressable>
+                    </View>
+                  ))
+                )}
+              </View>
+
               <RequestDonorList
                 donations={begDonations}
                 total={donorTotal}
@@ -1353,6 +1500,81 @@ const styles = StyleSheet.create({
     color: '#2E8BEA',
     textAlign: 'center',
     marginTop: 12,
+  },
+  evidencePanel: {
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 16,
+    backgroundColor: '#FFFFFF',
+  },
+  evidenceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 10,
+  },
+  evidenceTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  evidenceSubtitle: {
+    marginTop: 2,
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  evidenceAddButton: {
+    height: 38,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    backgroundColor: '#EFF6FF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  evidenceAddText: {
+    color: '#2E8BEA',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  evidenceEmpty: {
+    color: '#6B7280',
+    fontSize: 13,
+  },
+  evidenceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+  },
+  evidenceRowCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  evidenceFileName: {
+    color: '#1F2937',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  evidenceMeta: {
+    color: '#6B7280',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  evidenceIconButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F9FAFB',
   },
   paymentProgressText: {
     fontSize: 13,

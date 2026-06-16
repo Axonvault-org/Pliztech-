@@ -1,4 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import * as ImagePicker from 'expo-image-picker';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { router, type Href } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -36,6 +37,7 @@ import {
   type TrustProgress,
   uiCategoryToApiCategory,
 } from '@/lib/api/beg';
+import { uploadBegEvidence, type EvidenceUploadFile } from '@/lib/api/evidence';
 import { formatPlizApiErrorForUser } from '@/lib/api/types';
 import {
   getAccessTokenOrTryRefresh,
@@ -132,6 +134,7 @@ export default function CreateScreen() {
   const [trustProgressLoading, setTrustProgressLoading] = useState(false);
   const [confirmVisible, setConfirmVisible] = useState(false);
   const [pendingSubmit, setPendingSubmit] = useState<CreateRequestFormData | null>(null);
+  const [evidenceFile, setEvidenceFile] = useState<EvidenceUploadFile | null>(null);
   const [liveSuccess, setLiveSuccess] = useState<{
     requestId: string;
     amount: number;
@@ -189,6 +192,28 @@ export default function CreateScreen() {
     }
   }, [anonymousModeEnabled, setValue]);
 
+  const pickEvidencePhoto = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Permission needed', 'Allow photo access to attach evidence.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: false,
+      quality: 0.85,
+    });
+
+    if (result.canceled || !result.assets[0]) return;
+    const asset = result.assets[0];
+    setEvidenceFile({
+      uri: asset.uri,
+      name: asset.fileName || `beg-evidence-${Date.now()}.jpg`,
+      type: asset.mimeType || 'image/jpeg',
+    });
+  };
+
   const onContinue = async (data: CreateRequestFormData) => {
     if (isSubmitting) return;
 
@@ -229,20 +254,38 @@ export default function CreateScreen() {
 
     setIsSubmitting(true);
     try {
-      const { beg } = await withUnauthorizedRecovery(signOut, (token) =>
-        createBeg(token, {
+      const { beg, evidenceUploadFailed } = await withUnauthorizedRecovery(signOut, async (token) => {
+        const created = await createBeg(token, {
           description: descriptionForApi,
           category: uiCategoryToApiCategory(data.categoryId),
           amountRequested,
           expiryHours,
           isAnonymous: !data.showName,
           mediaType: 'text',
-        })
-      );
+        });
+
+        let evidenceUploadFailed = false;
+        if (evidenceFile) {
+          try {
+            await uploadBegEvidence(token, created.beg.id, evidenceFile);
+          } catch {
+            evidenceUploadFailed = true;
+          }
+        }
+
+        return { ...created, evidenceUploadFailed };
+      });
 
       const categoryMeta = REQUEST_CATEGORIES.find((c) => c.id === data.categoryId);
       const expiryHoursLabel =
         EXPIRY_OPTIONS.find((o) => o.value === data.expiryHours)?.label ?? '';
+
+      if (evidenceUploadFailed) {
+        Alert.alert(
+          'Evidence not uploaded',
+          'Your request was created, but the evidence photo could not be uploaded. You can add it from the request detail screen.'
+        );
+      }
 
       setConfirmVisible(false);
       setPendingSubmit(null);
@@ -268,6 +311,7 @@ export default function CreateScreen() {
     setLiveSuccess(null);
     reset(createDefaults);
     setSelectedCategory(null);
+    setEvidenceFile(null);
   };
 
   const onLiveDismissOrHome = () => {
@@ -376,6 +420,29 @@ export default function CreateScreen() {
               />
             )}
           />
+
+          <View style={styles.evidenceCard}>
+            <View style={styles.evidenceCopy}>
+              <Text style={styles.evidenceTitle}>Evidence photo</Text>
+              <Text style={styles.evidenceHint}>
+                Optional proof can help donors and admins understand your request.
+              </Text>
+              {evidenceFile ? <Text style={styles.evidenceFile}>{evidenceFile.name}</Text> : null}
+            </View>
+            <Pressable
+              style={styles.evidenceButton}
+              onPress={() => void pickEvidencePhoto()}
+              accessibilityRole="button"
+              accessibilityLabel="Attach evidence photo"
+            >
+              <Ionicons
+                name={evidenceFile ? 'swap-horizontal-outline' : 'image-outline'}
+                size={18}
+                color="#2E8BEA"
+              />
+              <Text style={styles.evidenceButtonText}>{evidenceFile ? 'Change' : 'Add'}</Text>
+            </Pressable>
+          </View>
 
           <Controller
             control={control}
@@ -550,6 +617,52 @@ const styles = StyleSheet.create({
   expiryLabelSelected: {
     color: COLORS.heading,
     fontWeight: '600',
+  },
+  evidenceCard: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 18,
+    backgroundColor: '#F9FAFB',
+  },
+  evidenceCopy: {
+    flex: 1,
+  },
+  evidenceTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: COLORS.heading,
+  },
+  evidenceHint: {
+    fontSize: 12,
+    color: COLORS.body,
+    marginTop: 3,
+  },
+  evidenceFile: {
+    fontSize: 12,
+    color: COLORS.brandBlue,
+    marginTop: 6,
+  },
+  evidenceButton: {
+    minWidth: 82,
+    height: 40,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    backgroundColor: '#EFF6FF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  evidenceButtonText: {
+    color: COLORS.brandBlue,
+    fontWeight: '700',
+    fontSize: 13,
   },
   platformFeeBox: {
     flexDirection: 'row',

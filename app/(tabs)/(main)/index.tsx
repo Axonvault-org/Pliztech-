@@ -106,6 +106,10 @@ export default function HomeScreen() {
     router.push('/(tabs)/(main)/browse');
   };
 
+  const onCommunityPulse = () => {
+    router.push('/(tabs)/community-purse' as import('expo-router').Href);
+  };
+
   const onSeeAll = () => {
     router.push('/(tabs)/(main)/browse');
   };
@@ -152,6 +156,7 @@ export default function HomeScreen() {
         <QuickActions
           onAskForHelp={onAskForHelp}
           onBrowseRequests={onBrowseRequests}
+          onCommunityPulse={onCommunityPulse}
         />
         <TrendingRequests
           requests={trending}
