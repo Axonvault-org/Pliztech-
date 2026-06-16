@@ -187,41 +187,47 @@ export function CurrentUserProvider({ children }: { children: ReactNode }) {
     return signOutInFlight.current;
   }, [queryClient]);
 
+  const fetchCurrentUser = useCallback(async (): Promise<MeUser | null> => {
+    let token = await getAccessToken();
+    if (!token) {
+      await tryRefreshAccessToken();
+      token = await getAccessToken();
+    }
+    if (!token) return null;
+
+    try {
+      return await getMe(token);
+    } catch (e) {
+      if (e instanceof PlizApiError && e.status === 401) {
+        const recovered = await recoverFromUnauthorized(signOut);
+        if (recovered) {
+          const token2 = await getAccessToken();
+          if (token2) {
+            return getMe(token2);
+          }
+        }
+        await logoutAndGoToLogin(signOut);
+        return null;
+      }
+      throw e;
+    }
+  }, [signOut]);
+
   const meQuery = useQuery({
     queryKey: queryKeys.me,
-    queryFn: async (): Promise<MeUser | null> => {
-      let token = await getAccessToken();
-      if (!token) {
-        await tryRefreshAccessToken();
-        token = await getAccessToken();
-      }
-      if (!token) return null;
-
-      try {
-        return await getMe(token);
-      } catch (e) {
-        if (e instanceof PlizApiError && e.status === 401) {
-          const recovered = await recoverFromUnauthorized(signOut);
-          if (recovered) {
-            const token2 = await getAccessToken();
-            if (token2) {
-              return getMe(token2);
-            }
-          }
-          await logoutAndGoToLogin(signOut);
-          return null;
-        }
-        throw e;
-      }
-    },
+    queryFn: fetchCurrentUser,
     staleTime: STALE_TIMES.me,
     retry: false,
   });
 
   const refreshUser = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: queryKeys.me });
-    await queryClient.fetchQuery({ queryKey: queryKeys.me });
-  }, [queryClient]);
+    await queryClient.fetchQuery({
+      queryKey: queryKeys.me,
+      queryFn: fetchCurrentUser,
+      staleTime: STALE_TIMES.me,
+    });
+  }, [fetchCurrentUser, queryClient]);
 
   const user = meQuery.data ?? null;
   const isLoading = meQuery.isLoading && user == null;

@@ -9,9 +9,14 @@ const HEADING = '#1F2937';
 export interface QuickActionsProps {
   onAskForHelp: () => void;
   onBrowseRequests: () => void;
+  onCommunityPulse: () => void;
 }
 
-export function QuickActions({ onAskForHelp, onBrowseRequests }: QuickActionsProps) {
+export function QuickActions({
+  onAskForHelp,
+  onBrowseRequests,
+  onCommunityPulse,
+}: QuickActionsProps) {
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>Quick Actions</Text>
@@ -36,6 +41,15 @@ export function QuickActions({ onAskForHelp, onBrowseRequests }: QuickActionsPro
           />
         </View>
       </View>
+      <View style={styles.singleRow}>
+        <ActionCard
+          icon="pulse-outline"
+          title="Community Purse"
+          subtitle="Support the shared fund"
+          variant="solid"
+          onPress={onCommunityPulse}
+        />
+      </View>
     </View>
   );
 }
@@ -59,5 +73,8 @@ const styles = StyleSheet.create({
   },
   gap: {
     width: 12,
+  },
+  singleRow: {
+    marginTop: 12,
   },
 });

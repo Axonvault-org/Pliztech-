@@ -1,4 +1,4 @@
-import { Redirect, Stack } from 'expo-router';
+import { Redirect, Stack, useSegments } from 'expo-router';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
@@ -14,6 +14,10 @@ export const unstable_settings = {
  */
 export default function TabLayout() {
   const { user, isLoading } = useCurrentUser();
+  const segments = useSegments();
+  const isCommunityPurseRoute = (segments as readonly string[]).some((segment) =>
+    segment === 'community-purse' || segment === 'community-pulse'
+  );
 
   useAndroidAuthenticatedBackHandler(Boolean(user));
 
@@ -26,7 +30,7 @@ export default function TabLayout() {
     );
   }
 
-  if (!user) {
+  if (!user && !isCommunityPurseRoute) {
     return <Redirect href="/(auth)/login" />;
   }
 
@@ -56,6 +60,8 @@ export default function TabLayout() {
       <Stack.Screen name="account-settings" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="delete-account" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="stories-feed" options={{ headerShown: false, presentation: 'card' }} />
+      <Stack.Screen name="community-purse" options={{ headerShown: false, presentation: 'card' }} />
+      <Stack.Screen name="community-pulse" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="share-story" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="kyc-verification" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="kyc-nin-verification" options={{ headerShown: false, presentation: 'card' }} />
