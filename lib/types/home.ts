@@ -12,6 +12,7 @@ export type TrendingRequest = {
   raised: number;
   goal: number;
   percent: number;
+  evidenceCount?: number;
   /** ISO date for client-side sort (API). */
   createdAt?: string;
   ownerUserId?: string;
@@ -44,6 +45,7 @@ export type BrowseRequest = {
   raised: number;
   goal: number;
   percent: number;
+  evidenceCount?: number;
   /** ISO timestamps when mapped from API (for client-side sort). */
   createdAt?: string;
   expiresAt?: string;

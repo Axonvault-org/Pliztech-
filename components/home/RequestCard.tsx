@@ -4,6 +4,7 @@ import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Text } from '@/components/Text';
 
 import { ProgressBar } from '@/components/ProgressBar';
+import { BegEvidenceButton } from '@/components/evidence/BegEvidenceButton';
 import { BegCardDonateButton } from '@/components/request/BegCardDonateButton';
 import { RequesterAvatar } from '@/components/request/RequesterAvatar';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
@@ -41,6 +42,7 @@ export function RequestCard({ request }: RequestCardProps) {
     raised,
     goal,
     percent,
+    evidenceCount,
     ownerUserId,
     canDonate,
   } = request;
@@ -101,13 +103,22 @@ export function RequestCard({ request }: RequestCardProps) {
         </TouchableOpacity>
       </Link>
 
-      {showActionButton ? (
-        <View style={styles.donateRow}>
-          <BegCardDonateButton
-            begId={id}
-            recipientName={name}
-            variant={isOwner ? 'view' : 'donate'}
-          />
+      {(evidenceCount && evidenceCount > 0) || showActionButton ? (
+        <View style={styles.actionRow}>
+          <View style={styles.actionLeft}>
+            {evidenceCount && evidenceCount > 0 ? (
+              <BegEvidenceButton begId={id} evidenceCount={evidenceCount} compact />
+            ) : null}
+          </View>
+          {showActionButton ? (
+            <View style={styles.actionRight}>
+              <BegCardDonateButton
+                begId={id}
+                recipientName={name}
+                variant={isOwner ? 'view' : 'donate'}
+              />
+            </View>
+          ) : null}
         </View>
       ) : null}
     </View>
@@ -175,9 +186,18 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: ACCENT_BLUE,
   },
-  donateRow: {
+  actionRow: {
     marginTop: 12,
     flexDirection: 'row',
-    justifyContent: 'flex-end',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  actionLeft: {
+    flex: 1,
+    minWidth: 0,
+  },
+  actionRight: {
+    flexShrink: 0,
   },
 });
