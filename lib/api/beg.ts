@@ -318,6 +318,7 @@ export type BegFeedItem = {
   amountRequested: number;
   amountRaised: number;
   percentFunded?: number;
+  evidenceCount?: number;
   status: string;
   approved: boolean;
   isWithdrawn?: boolean;
@@ -613,6 +614,7 @@ export function feedBegToBrowseRequest(beg: BegFeedItem): BrowseRequest {
     raised,
     goal,
     percent: Math.min(100, Math.max(0, pct)),
+    evidenceCount: Math.max(0, Number(beg.evidenceCount) || 0),
     createdAt: beg.createdAt,
     expiresAt: beg.expiresAt,
     ownerUserId: beg.userId,
@@ -662,6 +664,7 @@ export function feedBegToTrendingRequest(beg: BegFeedItem): TrendingRequest {
     raised,
     goal,
     percent: Math.min(100, Math.max(0, pct)),
+    evidenceCount: Math.max(0, Number(beg.evidenceCount) || 0),
     createdAt: beg.createdAt,
     ownerUserId: beg.userId,
     canDonate: begAcceptsDonations(beg),

@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
-    Linking,
     Platform,
     Pressable,
     ScrollView,
@@ -15,6 +14,7 @@ import {
 } from 'react-native';
 
 import { DonationThankYouModal } from '@/components/donation/DonationThankYouModal';
+import { BegEvidenceViewerModal } from '@/components/evidence/BegEvidenceViewerModal';
 import { CTAButton } from '@/components/CTAButton';
 import { Text } from '@/components/Text';
 
@@ -142,6 +142,8 @@ export default function RequestDetailScreen() {
   const [evidence, setEvidence] = useState<BegEvidenceItem[]>([]);
   const [evidenceLoading, setEvidenceLoading] = useState(false);
   const [evidenceUploading, setEvidenceUploading] = useState(false);
+  const [evidenceViewerOpen, setEvidenceViewerOpen] = useState(false);
+  const [selectedEvidenceIndex, setSelectedEvidenceIndex] = useState(0);
 
   const loadRequest = useCallback(async () => {
     if (!id) {
@@ -933,7 +935,7 @@ export default function RequestDetailScreen() {
               ) : evidence.length === 0 ? (
                 <Text style={styles.evidenceEmpty}>No evidence attached yet.</Text>
               ) : (
-                evidence.map((item) => (
+                evidence.map((item, index) => (
                   <View key={item.id} style={styles.evidenceRow}>
                     <View style={styles.evidenceRowCopy}>
                       <Text style={styles.evidenceFileName} numberOfLines={1}>
@@ -945,10 +947,16 @@ export default function RequestDetailScreen() {
                     </View>
                     {item.url ? (
                       <Pressable
-                        style={styles.evidenceIconButton}
-                        onPress={() => void Linking.openURL(item.url!)}
+                        style={styles.evidenceViewButton}
+                        onPress={() => {
+                          setSelectedEvidenceIndex(index);
+                          setEvidenceViewerOpen(true);
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`View evidence ${index + 1}`}
                       >
                         <Ionicons name="open-outline" size={18} color="#2E8BEA" />
+                        <Text style={styles.evidenceViewText}>View</Text>
                       </Pressable>
                     ) : null}
                     {isOwner ? (
@@ -1167,6 +1175,14 @@ export default function RequestDetailScreen() {
           setDonationThankYou(null);
           void loadRequest();
         }}
+      />
+      <BegEvidenceViewerModal
+        visible={evidenceViewerOpen}
+        evidence={evidence}
+        selectedIndex={selectedEvidenceIndex}
+        loading={evidenceLoading}
+        onClose={() => setEvidenceViewerOpen(false)}
+        onSelectIndex={setSelectedEvidenceIndex}
       />
     </Screen>
   );
@@ -1588,6 +1604,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#F9FAFB',
+  },
+  evidenceViewButton: {
+    minHeight: 34,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+  },
+  evidenceViewText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#2E8BEA',
   },
   paymentProgressText: {
     fontSize: 13,
