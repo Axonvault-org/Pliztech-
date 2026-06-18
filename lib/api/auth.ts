@@ -191,6 +191,43 @@ export async function submitPasswordReset(body: ResetPasswordBody): Promise<stri
   );
 }
 
+/**
+ * POST /api/auth/resend-verification — send a fresh verification email.
+ */
+export async function resendVerificationEmail(email: string): Promise<string> {
+  const res = await fetch(apiUrl('/api/auth/resend-verification'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({ email: email.trim() }),
+  });
+
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    throw new PlizApiError('Invalid response from server', res.status);
+  }
+
+  const data = json as {
+    success?: boolean;
+    message?: string;
+    errors?: { field: string; message: string }[];
+  };
+
+  if (!res.ok || data.success !== true) {
+    throw new PlizApiError(
+      data.message ?? `Request failed (${res.status})`,
+      res.status,
+      Array.isArray(data.errors) ? data.errors : []
+    );
+  }
+
+  return data.message ?? 'Verification email sent. Please check your inbox.';
+}
+
 /** Must match POST /api/auth/change-password validation. */
 export type ChangePasswordBody = {
   currentPassword: string;

@@ -15,7 +15,7 @@ import { FormTextInput } from '@/components/FormTextInput';
 import { Screen } from '@/components/Screen';
 import { formContentStyle } from '@/constants/layout';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
-import { login as loginRequest } from '@/lib/api/auth';
+import { login as loginRequest, resendVerificationEmail } from '@/lib/api/auth';
 import { PlizApiError, formatLoginErrorForUser } from '@/lib/api/types';
 import { setTokens } from '@/lib/auth/access-token';
 import { resetSessionRecoveryState } from '@/lib/auth/session-expired';
@@ -57,10 +57,14 @@ export default function LoginScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [oauthBusy, setOauthBusy] = useState(false);
   const [apiMessage, setApiMessage] = useState<string | null>(null);
+  const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
+  const [resendSubmitting, setResendSubmitting] = useState(false);
+  const [resendMessage, setResendMessage] = useState<string | null>(null);
 
   const {
     control,
     handleSubmit,
+    getValues,
     setError,
     formState: { errors },
   } = useForm<LoginFormData>({
@@ -70,6 +74,8 @@ export default function LoginScreen() {
 
   const onSignIn = async (data: LoginFormData) => {
     setApiMessage(null);
+    setUnverifiedEmail(null);
+    setResendMessage(null);
     setIsSubmitting(true);
     try {
       const result = await loginRequest({
@@ -87,6 +93,11 @@ export default function LoginScreen() {
       }
     } catch (e) {
       if (e instanceof PlizApiError) {
+        const emailVerificationRequired =
+          e.status === 403 && e.message.toLowerCase().includes('verify');
+        if (emailVerificationRequired) {
+          setUnverifiedEmail(data.email.trim());
+        }
         if (e.errors.length) {
           for (const item of e.errors) {
             if (item.field === 'email') {
@@ -105,6 +116,25 @@ export default function LoginScreen() {
       }
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const onResendVerification = async () => {
+    const email = (unverifiedEmail || getValues('email')).trim();
+    if (!email) {
+      setApiMessage('Enter your email address so we can resend verification.');
+      return;
+    }
+    setResendSubmitting(true);
+    setResendMessage(null);
+    try {
+      const message = await resendVerificationEmail(email);
+      setResendMessage(message);
+      setApiMessage(null);
+    } catch (e) {
+      setResendMessage(formatLoginErrorForUser(e));
+    } finally {
+      setResendSubmitting(false);
     }
   };
 
@@ -149,10 +179,29 @@ export default function LoginScreen() {
             </Text>
           ) : null}
 
-          {apiMessage ? (
+          {apiMessage && !unverifiedEmail ? (
             <Text style={styles.apiError} accessibilityLiveRegion="polite">
               {apiMessage}
             </Text>
+          ) : null}
+
+          {unverifiedEmail ? (
+            <View style={styles.verificationNotice} accessibilityLiveRegion="polite">
+              <Text style={styles.verificationNoticeText}>
+                {resendMessage || 'Please verify your email before logging in.'}{' '}
+                <Text
+                  style={[
+                    styles.verificationNoticeLink,
+                    resendSubmitting && styles.verificationNoticeLinkDisabled,
+                  ]}
+                  onPress={() => {
+                    if (!resendSubmitting) void onResendVerification();
+                  }}
+                >
+                  {resendSubmitting ? 'Sending…' : 'Resend Verification?'}
+                </Text>
+              </Text>
+            </View>
           ) : null}
 
           <View style={styles.form}>
@@ -312,6 +361,29 @@ const styles = StyleSheet.create({
     color: COLORS.error,
     marginBottom: 12,
     textAlign: 'center',
+  },
+  verificationNotice: {
+    alignSelf: 'stretch',
+    backgroundColor: '#FEF3C7',
+    padding: 12,
+    borderRadius: 10,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#FCD34D',
+  },
+  verificationNoticeText: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#92400E',
+    textAlign: 'center',
+  },
+  verificationNoticeLink: {
+    color: COLORS.link,
+    fontWeight: '600',
+    textDecorationLine: 'underline',
+  },
+  verificationNoticeLinkDisabled: {
+    opacity: 0.7,
   },
   spinner: {
     marginTop: 12,
