@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CTAButton } from '@/components/CTAButton';
 import { ProgressBar } from '@/components/ProgressBar';
+import { StorySubmittedModal } from '@/components/story/StorySubmittedModal';
 import { Text } from '@/components/Text';
 import { avatarColorFromSeed, useCurrentUser } from '@/contexts/CurrentUserContext';
 import {
@@ -101,6 +102,7 @@ export function PastRequestOverlay({ visible, onClose, summary }: PastRequestOve
   const [shareSubmitting, setShareSubmitting] = useState(false);
   /** API error from “Share story” (shown above the testimony field). */
   const [shareError, setShareError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!summary?.id) return;
@@ -217,12 +219,7 @@ export function PastRequestOverlay({ visible, onClose, summary }: PastRequestOve
           setShareError(null);
           onClose();
           setTestimony('');
-          Alert.alert('Story submitted', message, [
-            {
-              text: 'Go to home',
-              onPress: () => router.replace('/(tabs)/(main)' as Href),
-            },
-          ]);
+          setSuccessMessage(message);
         });
       } catch (e) {
         setShareError(formatPlizApiErrorForUser(e));
@@ -233,13 +230,14 @@ export function PastRequestOverlay({ visible, onClose, summary }: PastRequestOve
   };
 
   return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      presentationStyle="pageSheet"
-      onRequestClose={onClose}
-    >
-      <View style={[styles.root, { paddingTop: insets.top }]}>
+    <>
+      <Modal
+        visible={visible}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={onClose}
+      >
+        <View style={[styles.root, { paddingTop: insets.top }]}>
         <View style={styles.topBar}>
           <Pressable
             onPress={onClose}
@@ -431,8 +429,21 @@ export function PastRequestOverlay({ visible, onClose, summary }: PastRequestOve
             </>
           ) : null}
         </ScrollView>
-      </View>
-    </Modal>
+        </View>
+      </Modal>
+      <StorySubmittedModal
+        visible={successMessage != null}
+        message={successMessage ?? undefined}
+        onDone={() => {
+          setSuccessMessage(null);
+          router.replace('/(tabs)/(main)' as Href);
+        }}
+        onViewStories={() => {
+          setSuccessMessage(null);
+          router.replace('/(tabs)/stories-feed' as Href);
+        }}
+      />
+    </>
   );
 }
 
