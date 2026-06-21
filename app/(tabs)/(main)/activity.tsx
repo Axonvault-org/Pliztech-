@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect } from '@react-navigation/native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     ActivityIndicator,
     FlatList,
@@ -22,6 +22,7 @@ import { SummaryCards } from '@/components/activity/SummaryCards';
 import { AppHeaderLogoRow } from '@/components/layout/AppHeaderLogoRow';
 import { Screen } from '@/components/Screen';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
+import { useStoryIndicator } from '@/contexts/StoryIndicatorContext';
 import {
     begFeedItemToActivityRequest,
     getBegById,
@@ -53,6 +54,7 @@ function firstQueryParam(value: string | string[] | undefined): string {
 
 export default function ActivityScreen() {
   const { signOut } = useCurrentUser();
+  const { hasUnseenStories, markStoriesSeen, refreshStoryStatus } = useStoryIndicator();
   const params = useLocalSearchParams<{ openPastBeg?: string | string[] }>();
   const openPastBegParam = useMemo(
     () => firstQueryParam(params.openPastBeg),
@@ -84,6 +86,18 @@ export default function ActivityScreen() {
 
   /** Past / closed request detail overlay (funded, expired, cancelled). */
   const [pastOverlayRequest, setPastOverlayRequest] = useState<ActivityRequest | null>(null);
+
+  useFocusEffect(
+    useCallback(() => {
+      void refreshStoryStatus();
+    }, [refreshStoryStatus])
+  );
+
+  useEffect(() => {
+    if (activeTab === 'stories') {
+      void markStoriesSeen();
+    }
+  }, [activeTab, markStoriesSeen]);
 
   const loadMyRequests = useCallback(
     async (opts?: { _retryAfterRefresh?: boolean }) => {
@@ -234,6 +248,16 @@ export default function ActivityScreen() {
     []
   );
 
+  const handleActivityTabChange = useCallback(
+    (tab: ActivityType) => {
+      setActiveTab(tab);
+      if (tab === 'stories') {
+        void markStoriesSeen();
+      }
+    },
+    [markStoriesSeen]
+  );
+
   const renderEmptyGiving = () => {
     if (givingLoading) return null;
     if (givingAuthRequired) {
@@ -332,7 +356,11 @@ export default function ActivityScreen() {
 
   const listHeader = (
     <>
-      <ActivityTypeFilters activeTab={activeTab} onTabChange={setActiveTab} />
+      <ActivityTypeFilters
+        activeTab={activeTab}
+        onTabChange={handleActivityTabChange}
+        showStoriesDot={hasUnseenStories}
+      />
       {activeTab === 'requests' && (
         <>
           <SummaryCards
