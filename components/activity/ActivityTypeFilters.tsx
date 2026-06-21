@@ -11,6 +11,7 @@ export type ActivityType = 'requests' | 'giving' | 'stories';
 export interface ActivityTypeFiltersProps {
   activeTab: ActivityType;
   onTabChange: (tab: ActivityType) => void;
+  showStoriesDot?: boolean;
 }
 
 const TABS: { id: ActivityType; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
@@ -19,7 +20,11 @@ const TABS: { id: ActivityType; label: string; icon: keyof typeof Ionicons.glyph
   { id: 'stories', label: 'Stories', icon: 'chatbubble-outline' },
 ];
 
-export function ActivityTypeFilters({ activeTab, onTabChange }: ActivityTypeFiltersProps) {
+export function ActivityTypeFilters({
+  activeTab,
+  onTabChange,
+  showStoriesDot = false,
+}: ActivityTypeFiltersProps) {
   return (
     <View style={styles.container}>
       {TABS.map((tab) => {
@@ -38,7 +43,10 @@ export function ActivityTypeFilters({ activeTab, onTabChange }: ActivityTypeFilt
               color={isSelected ? HEADING : BODY}
               style={styles.icon}
             />
-            <Text style={[styles.label, isSelected && styles.labelSelected]}>{tab.label}</Text>
+            <View style={styles.labelWrap}>
+              <Text style={[styles.label, isSelected && styles.labelSelected]}>{tab.label}</Text>
+              {tab.id === 'stories' && showStoriesDot ? <View style={styles.unseenDot} /> : null}
+            </View>
           </Pressable>
         );
       })}
@@ -74,7 +82,19 @@ const styles = StyleSheet.create({
     color: BODY,
     fontWeight: '500',
   },
+  labelWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   labelSelected: {
     color: HEADING,
+  },
+  unseenDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#EF4444',
+    marginLeft: 5,
+    marginTop: -8,
   },
 });

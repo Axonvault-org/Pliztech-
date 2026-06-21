@@ -15,6 +15,7 @@ import { Text } from '@/components/Text';
 import { AppHeaderTitleRow } from '@/components/layout/AppHeaderTitleRow';
 import { Screen } from '@/components/Screen';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
+import { useStoryIndicator } from '@/contexts/StoryIndicatorContext';
 import { getStoriesFeed, type StoryItem } from '@/lib/api/stories';
 import { PlizApiError } from '@/lib/api/types';
 import { withUnauthorizedRecovery } from '@/lib/auth/session-expired';
@@ -31,6 +32,7 @@ function formatStoryDate(iso?: string): string {
 
 export default function StoriesFeedScreen() {
   const { signOut } = useCurrentUser();
+  const { markStoriesSeen } = useStoryIndicator();
   const [stories, setStories] = useState<StoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -61,6 +63,10 @@ export default function StoriesFeedScreen() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    void markStoriesSeen();
+  }, [markStoriesSeen]);
 
   const onRefresh = () => {
     setRefreshing(true);
