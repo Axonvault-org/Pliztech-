@@ -8,6 +8,9 @@ import { ProgressBar } from '@/components/ProgressBar';
 import { BegEvidenceButton } from '@/components/evidence/BegEvidenceButton';
 import { BegCardDonateButton } from '@/components/request/BegCardDonateButton';
 import { RequesterAvatar } from '@/components/request/RequesterAvatar';
+import { VerifiedByPlzBadge } from '@/components/safety/VerifiedByPlzBadge';
+import { VerificationStatusDot } from '@/components/safety/VerificationStatusDot';
+import { VERIFIED_BY_PLZ_BADGE } from '@/lib/api/beg';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
 import { REQUEST_CATEGORIES } from '@/constants/categories';
 
@@ -58,6 +61,7 @@ export function BrowseRequestCard({ request, onPress }: BrowseRequestCardProps) 
   const isAnonymous = name.toLowerCase() === 'anonymous';
   const isOwner = Boolean(user?.id && ownerUserId && user.id === ownerUserId);
   const showActionButton = isOwner || Boolean(canDonate);
+  const isVerifiedRequest = badge === VERIFIED_BY_PLZ_BADGE;
 
   return (
     <View style={styles.card}>
@@ -79,21 +83,30 @@ export function BrowseRequestCard({ request, onPress }: BrowseRequestCardProps) 
             accessibilityLabel={`Request by ${name}`}
             onPress={onPress}
           >
-            <View style={styles.nameWrap}>
+            <View style={styles.headerCopy}>
               <View style={styles.nameRow}>
                 <Text style={styles.name} numberOfLines={1}>
                   {name}
                 </Text>
-                {badge ? (
+                <VerificationStatusDot verified={isVerifiedRequest} compact />
+              </View>
+              <View style={styles.metaRow}>
+                {isVerifiedRequest ? (
+                  <VerifiedByPlzBadge compact />
+                ) : badge ? (
                   <View style={styles.badge}>
                     <Text style={styles.badgeText}>{badge}</Text>
                   </View>
-                ) : null}
+                ) : (
+                  <View style={styles.metaSpacer} />
+                )}
+                <View style={styles.timeLeft}>
+                  <Ionicons name="time-outline" size={14} color={BODY} />
+                  <Text style={styles.timeLeftText} numberOfLines={1}>
+                    {timeLeft}
+                  </Text>
+                </View>
               </View>
-            </View>
-            <View style={styles.timeLeft}>
-              <Ionicons name="time-outline" size={14} color={BODY} />
-              <Text style={styles.timeLeftText}>{timeLeft}</Text>
             </View>
           </TouchableOpacity>
         </Link>
@@ -167,34 +180,43 @@ const styles = StyleSheet.create({
   },
   topRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: 10,
     gap: 12,
   },
   topRowLink: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
+    minWidth: 0,
   },
-  cardBody: {
-    padding: 0,
-  },
-  nameWrap: {
+  headerCopy: {
     flex: 1,
     minWidth: 0,
+    gap: 4,
   },
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    minWidth: 0,
+  },
+  cardBody: {
+    padding: 0,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  metaSpacer: {
+    flex: 1,
   },
   name: {
+    flexShrink: 1,
     fontSize: 16,
     fontWeight: '700',
     color: HEADING,
-    flexShrink: 1,
+    minWidth: 0,
   },
   badge: {
     backgroundColor: '#F3F4F6',
@@ -219,6 +241,7 @@ const styles = StyleSheet.create({
   timeLeftText: {
     fontSize: 12,
     color: BODY,
+    flexShrink: 1,
   },
   categoryRow: {
     flexDirection: 'row',

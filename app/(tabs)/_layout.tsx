@@ -74,6 +74,9 @@ export default function TabLayout() {
         <Stack.Screen name="profile-picture" options={{ headerShown: false, presentation: 'card' }} />
         <Stack.Screen name="support" options={{ headerShown: false, presentation: 'card' }} />
         <Stack.Screen name="report-issue" options={{ headerShown: false, presentation: 'card' }} />
+        <Stack.Screen name="blocked-users" options={{ headerShown: false, presentation: 'card' }} />
+        <Stack.Screen name="hidden-requests" options={{ headerShown: false, presentation: 'card' }} />
+        <Stack.Screen name="admin-messages" options={{ headerShown: false, presentation: 'card' }} />
         <Stack.Screen name="legal" options={{ headerShown: false, presentation: 'card' }} />
       </Stack>
     </StoryIndicatorProvider>

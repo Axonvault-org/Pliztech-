@@ -14,10 +14,12 @@ import { Text } from '@/components/Text';
 
 import { AppHeaderTitleRow } from '@/components/layout/AppHeaderTitleRow';
 import { Screen } from '@/components/Screen';
+import { ReportContentSheet, type ReportTarget } from '@/components/safety/ReportContentSheet';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
 import { useStoryIndicator } from '@/contexts/StoryIndicatorContext';
+import { reportStory } from '@/lib/api/reports';
 import { getStoriesFeed, type StoryItem } from '@/lib/api/stories';
-import { PlizApiError } from '@/lib/api/types';
+import { formatPlizApiErrorForUser, PlizApiError } from '@/lib/api/types';
 import { withUnauthorizedRecovery } from '@/lib/auth/session-expired';
 
 function formatStoryDate(iso?: string): string {
@@ -37,6 +39,8 @@ export default function StoriesFeedScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [reportVisible, setReportVisible] = useState(false);
+  const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -125,7 +129,23 @@ export default function StoriesFeedScreen() {
           ) : null}
           {stories.map((s) => (
             <View key={s.id} style={styles.card}>
-              <Text style={styles.storyBody}>{s.content}</Text>
+              <View style={styles.cardHeader}>
+                <Text style={styles.storyBody}>{s.content}</Text>
+                <Pressable
+                  onPress={() => {
+                    setReportTarget({
+                      type: 'story',
+                      id: s.id,
+                      label: s.content.slice(0, 80),
+                    });
+                    setReportVisible(true);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Report story"
+                >
+                  <Ionicons name="flag-outline" size={18} color="#9CA3AF" />
+                </Pressable>
+              </View>
               <View style={styles.metaRow}>
                 <Text style={styles.metaAuthor}>
                   {s.user?.isAnonymous ? 'Anonymous' : s.user?.username ?? 'Member'}
@@ -136,6 +156,20 @@ export default function StoriesFeedScreen() {
           ))}
         </ScrollView>
       )}
+      <ReportContentSheet
+        visible={reportVisible}
+        target={reportTarget}
+        onClose={() => {
+          setReportVisible(false);
+          setReportTarget(null);
+        }}
+        onSubmit={async (body) => {
+          if (!reportTarget || reportTarget.type !== 'story') return;
+          await withUnauthorizedRecovery(signOut, (token) =>
+            reportStory(token, reportTarget.id, body)
+          );
+        }}
+      />
     </Screen>
   );
 }
@@ -210,7 +244,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
+  cardHeader: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'flex-start',
+  },
   storyBody: {
+    flex: 1,
     fontSize: 15,
     color: '#1F2937',
     lineHeight: 22,

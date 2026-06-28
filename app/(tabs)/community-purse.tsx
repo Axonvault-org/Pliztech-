@@ -128,7 +128,7 @@ export default function CommunityPulseScreen() {
       const result = await initializeCommunityPulseDonation(token, {
         amount: numericAmount,
         donorName: user?.profile?.displayName ?? user?.username,
-        donorEmail: user?.email ?? 'community@plz.app',
+        donorEmail: user?.email ?? 'community@plz.ng',
         isAnonymous,
         message: message.trim() || undefined,
         redirectUrl,

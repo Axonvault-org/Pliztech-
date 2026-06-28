@@ -134,7 +134,7 @@ export default function CreateScreen() {
   const [trustProgressLoading, setTrustProgressLoading] = useState(false);
   const [confirmVisible, setConfirmVisible] = useState(false);
   const [pendingSubmit, setPendingSubmit] = useState<CreateRequestFormData | null>(null);
-  const [evidenceFile, setEvidenceFile] = useState<EvidenceUploadFile | null>(null);
+  const [evidenceFiles, setEvidenceFiles] = useState<EvidenceUploadFile[]>([]);
   const [liveSuccess, setLiveSuccess] = useState<{
     requestId: string;
     amount: number;
@@ -207,12 +207,17 @@ export default function CreateScreen() {
 
     if (result.canceled || !result.assets[0]) return;
     const asset = result.assets[0];
-    setEvidenceFile({
+    const nextFile: EvidenceUploadFile = {
       uri: asset.uri,
       name: asset.fileName || `beg-evidence-${Date.now()}.jpg`,
       type: asset.mimeType || 'image/jpeg',
       file: asset.file,
-    });
+    };
+    setEvidenceFiles((prev) => [...prev, nextFile]);
+  };
+
+  const removeEvidenceFile = (index: number) => {
+    setEvidenceFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
   const onContinue = async (data: CreateRequestFormData) => {
@@ -266,11 +271,13 @@ export default function CreateScreen() {
         });
 
         let evidenceUploadFailed = false;
-        if (evidenceFile) {
-          try {
-            await uploadBegEvidence(token, created.beg.id, evidenceFile);
-          } catch {
-            evidenceUploadFailed = true;
+        if (evidenceFiles.length > 0) {
+          for (const file of evidenceFiles) {
+            try {
+              await uploadBegEvidence(token, created.beg.id, file);
+            } catch {
+              evidenceUploadFailed = true;
+            }
           }
         }
 
@@ -283,8 +290,8 @@ export default function CreateScreen() {
 
       if (evidenceUploadFailed) {
         Alert.alert(
-          'Evidence not uploaded',
-          'Your request was created, but the evidence photo could not be uploaded. You can add it from the request detail screen.'
+          'Some evidence not uploaded',
+          'Your request was created, but one or more evidence photos could not be uploaded. You can add them from the request detail screen.'
         );
       }
 
@@ -298,7 +305,13 @@ export default function CreateScreen() {
         expiryLine: `Expires in ${expiryHoursLabel}`,
       });
     } catch (e) {
-      Alert.alert('Could not submit', formatPlizApiErrorForUser(e));
+      const message = formatPlizApiErrorForUser(e);
+      Alert.alert(
+        'Could not submit',
+        message.includes('objectionable content')
+          ? 'Your description includes language that is not allowed on Plz. Please revise it and try again.'
+          : message
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -312,7 +325,7 @@ export default function CreateScreen() {
     setLiveSuccess(null);
     reset(createDefaults);
     setSelectedCategory(null);
-    setEvidenceFile(null);
+    setEvidenceFiles([]);
   };
 
   const onLiveDismissOrHome = () => {
@@ -424,11 +437,20 @@ export default function CreateScreen() {
 
           <View style={styles.evidenceCard}>
             <View style={styles.evidenceCopy}>
-              <Text style={styles.evidenceTitle}>Evidence photo</Text>
+              <Text style={styles.evidenceTitle}>Evidence photos</Text>
               <Text style={styles.evidenceHint}>
-                Optional proof can help donors and admins understand your request.
+                Add photos that support your request. You can attach more than one.
               </Text>
-              {evidenceFile ? <Text style={styles.evidenceFile}>{evidenceFile.name}</Text> : null}
+              {evidenceFiles.map((file, index) => (
+                <View key={`${file.name}-${index}`} style={styles.evidenceFileRow}>
+                  <Text style={styles.evidenceFile} numberOfLines={1}>
+                    {file.name}
+                  </Text>
+                  <Pressable onPress={() => removeEvidenceFile(index)}>
+                    <Ionicons name="close-circle" size={18} color="#9CA3AF" />
+                  </Pressable>
+                </View>
+              ))}
             </View>
             <Pressable
               style={styles.evidenceButton}
@@ -436,12 +458,8 @@ export default function CreateScreen() {
               accessibilityRole="button"
               accessibilityLabel="Attach evidence photo"
             >
-              <Ionicons
-                name={evidenceFile ? 'swap-horizontal-outline' : 'image-outline'}
-                size={18}
-                color="#2E8BEA"
-              />
-              <Text style={styles.evidenceButtonText}>{evidenceFile ? 'Change' : 'Add'}</Text>
+              <Ionicons name="image-outline" size={18} color="#2E8BEA" />
+              <Text style={styles.evidenceButtonText}>Add photo</Text>
             </Pressable>
           </View>
 
@@ -646,6 +664,12 @@ const styles = StyleSheet.create({
   evidenceFile: {
     fontSize: 12,
     color: COLORS.brandBlue,
+    flex: 1,
+  },
+  evidenceFileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     marginTop: 6,
   },
   evidenceButton: {

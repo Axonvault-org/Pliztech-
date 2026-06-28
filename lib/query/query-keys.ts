@@ -1,6 +1,7 @@
 export const queryKeys = {
   me: ['me'] as const,
   unreadCount: ['notifications', 'unread-count'] as const,
+  supportUnreadCount: ['support', 'unread-count'] as const,
   profilePicture: ['profile-picture'] as const,
   begsFeed: (params: { page: number; limit: number; category?: string }) =>
     ['begs', 'feed', params] as const,

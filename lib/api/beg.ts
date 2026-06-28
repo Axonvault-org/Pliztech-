@@ -5,10 +5,17 @@ import { avatarColorFromSeed } from '@/contexts/CurrentUserContext';
 import type { ActivityRequest, ActivityRequestStatus } from '@/lib/types/activity';
 import type { BrowseRequest, TrendingRequest } from '@/lib/types/home';
 import type { RequestDetail } from '@/lib/types/requests';
+import { isWebAuthEnvironment } from '@/lib/auth/web-auth';
 
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { PlizApiError } from './types';
+import { apiFailureFromResponseJson, PlizApiError } from './types';
+
+export const VERIFIED_BY_PLZ_BADGE = 'Verified Request';
+
+export function verifiedBadgeForBeg(approved: boolean | undefined): string | undefined {
+  return approved === true ? VERIFIED_BY_PLZ_BADGE : undefined;
+}
 
 /** Category enum expected by POST /api/begs (express-validator). */
 export type BegApiCategory =
@@ -619,6 +626,7 @@ export function feedBegToBrowseRequest(beg: BegFeedItem): BrowseRequest {
     expiresAt: beg.expiresAt,
     ownerUserId: beg.userId,
     canDonate: begAcceptsDonations(beg),
+    badge: verifiedBadgeForBeg(beg.approved),
   };
 }
 
@@ -668,6 +676,7 @@ export function feedBegToTrendingRequest(beg: BegFeedItem): TrendingRequest {
     createdAt: beg.createdAt,
     ownerUserId: beg.userId,
     canDonate: begAcceptsDonations(beg),
+    badge: verifiedBadgeForBeg(beg.approved),
   };
 }
 
@@ -802,5 +811,102 @@ export function begFeedItemToRequestDetail(beg: BegFeedItem): RequestDetail {
     viewerDonation: beg.viewerDonation ?? null,
     begStatus: beg.status,
     isWithdrawn: Boolean(beg.isWithdrawn),
+    badge: verifiedBadgeForBeg(beg.approved),
+  };
+}
+
+export type HiddenBegRow = {
+  id: string;
+  description: string;
+  status: string;
+  amountRequested: number;
+  amountRaised: number;
+  category: { name: string; icon: string | null };
+  hiddenAt: string;
+};
+
+export type GetHiddenBegsResult = {
+  hiddenBegs: HiddenBegRow[];
+  total: number;
+  pages: number;
+};
+
+export async function hideBeg(accessToken: string, begId: string): Promise<void> {
+  const res = await fetch(apiUrl(`/api/begs/${encodeURIComponent(begId)}/hide`), {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    credentials: isWebAuthEnvironment() ? 'include' : 'omit',
+  });
+
+  let json: unknown = null;
+  try {
+    json = await res.json();
+  } catch {
+    if (!res.ok) throw new PlizApiError('Invalid response from server', res.status);
+  }
+
+  const data = json as { success?: boolean } | null;
+  if (!res.ok || data?.success === false) {
+    throw apiFailureFromResponseJson(json, res.status);
+  }
+}
+
+export async function unhideBeg(accessToken: string, begId: string): Promise<void> {
+  const res = await fetch(apiUrl(`/api/begs/${encodeURIComponent(begId)}/hide`), {
+    method: 'DELETE',
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    credentials: isWebAuthEnvironment() ? 'include' : 'omit',
+  });
+
+  let json: unknown = null;
+  try {
+    json = await res.json();
+  } catch {
+    if (!res.ok) throw new PlizApiError('Invalid response from server', res.status);
+  }
+
+  const data = json as { success?: boolean } | null;
+  if (!res.ok || data?.success === false) {
+    throw apiFailureFromResponseJson(json, res.status);
+  }
+}
+
+export async function getHiddenBegs(
+  accessToken: string,
+  page = 1,
+  limit = 50
+): Promise<GetHiddenBegsResult> {
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  const res = await fetch(apiUrl(`/api/begs/hidden?${params}`), {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    credentials: isWebAuthEnvironment() ? 'include' : 'omit',
+  });
+
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    throw new PlizApiError('Invalid response from server', res.status);
+  }
+
+  const data = json as { success?: boolean; data?: GetHiddenBegsResult };
+  if (!res.ok || data.success !== true || !data.data) {
+    throw apiFailureFromResponseJson(json, res.status);
+  }
+
+  return {
+    hiddenBegs: Array.isArray(data.data.hiddenBegs) ? data.data.hiddenBegs : [],
+    total: data.data.total ?? 0,
+    pages: data.data.pages ?? 1,
   };
 }
