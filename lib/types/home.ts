@@ -8,7 +8,7 @@ export type TrendingRequest = {
   timeAgo: string;
   /** Time until request expires (from API `expiresAt`). */
   expiresInLabel?: string;
-  /** e.g. "Verified by Plz" when admin-approved */
+  /** e.g. "Verified Request" when admin-approved */
   badge?: string;
   text: string;
   raised: number;

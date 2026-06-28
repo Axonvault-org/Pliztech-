@@ -11,7 +11,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { apiFailureFromResponseJson, PlizApiError } from './types';
 
-export const VERIFIED_BY_PLZ_BADGE = 'Verified by Plz';
+export const VERIFIED_BY_PLZ_BADGE = 'Verified Request';
 
 export function verifiedBadgeForBeg(approved: boolean | undefined): string | undefined {
   return approved === true ? VERIFIED_BY_PLZ_BADGE : undefined;

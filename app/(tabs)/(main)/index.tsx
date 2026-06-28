@@ -18,6 +18,7 @@ import { PlizApiError } from '@/lib/api/types';
 import type { TrendingRequest } from '@/lib/types/home';
 
 import { useUnreadNotificationCount } from '@/hooks/useUnreadNotificationCount';
+import { useUnreadSupportMessageCount } from '@/hooks/useUnreadSupportMessageCount';
 import {
   useProfilePictureQuery,
   useRecentContributionsQuery,
@@ -32,6 +33,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { user, isLoading, signOut, refreshUser } = useCurrentUser();
   const { unreadCount, refreshUnreadCount } = useUnreadNotificationCount();
+  const { refreshUnreadSupportCount } = useUnreadSupportMessageCount();
 
   const trendingQuery = useTrendingBegsQuery(5);
   const recentQuery = useRecentContributionsQuery(RECENT_CONTRIBUTIONS_HOME_LIMIT, signOut);
@@ -57,6 +59,7 @@ export default function HomeScreen() {
       profilePictureQuery.refetch(),
       refreshUser(),
       refreshUnreadCount(),
+      refreshUnreadSupportCount(),
     ]);
   }, [
     trendingQuery,
@@ -64,6 +67,7 @@ export default function HomeScreen() {
     profilePictureQuery,
     refreshUser,
     refreshUnreadCount,
+    refreshUnreadSupportCount,
   ]);
 
   const trendingError =

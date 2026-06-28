@@ -546,6 +546,49 @@ export default function RequestDetailScreen() {
     return (cat?.icon ?? 'briefcase-outline') as keyof typeof Ionicons.glyphMap;
   }, [request]);
 
+  const ownerUserIdForSafety = request?.ownerUserId;
+  const isOwnerForSafety = Boolean(
+    user?.id && ownerUserIdForSafety && user.id === ownerUserIdForSafety
+  );
+
+  const onSafetyMenu = useCallback(() => {
+    if (!id || !ownerUserIdForSafety || isOwnerForSafety) return;
+    Alert.alert('Request options', undefined, [
+      {
+        text: 'Hide from feed',
+        onPress: () =>
+          void (async () => {
+            try {
+              await withUnauthorizedRecovery(signOut, (token) => hideBeg(token, id));
+              Alert.alert('Hidden', 'This request will no longer appear in your feed.', [
+                { text: 'OK', onPress: () => router.back() },
+              ]);
+            } catch (e) {
+              Alert.alert('Could not hide request', formatPlizApiErrorForUser(e));
+            }
+          })(),
+      },
+      {
+        text: 'Block user',
+        style: 'destructive',
+        onPress: () =>
+          void (async () => {
+            try {
+              await withUnauthorizedRecovery(signOut, (token) =>
+                blockUser(token, ownerUserIdForSafety)
+              );
+              Alert.alert('User blocked', 'You will no longer see content from this user.', [
+                { text: 'OK', onPress: () => router.back() },
+              ]);
+            } catch (e) {
+              Alert.alert('Could not block user', formatPlizApiErrorForUser(e));
+            }
+          })(),
+      },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  }, [id, ownerUserIdForSafety, isOwnerForSafety, signOut]);
+
   if (!id) {
     return (
       <Screen backgroundColor="#FFFFFF">
@@ -637,42 +680,6 @@ export default function RequestDetailScreen() {
   const isOwner =
     Boolean(user?.id && ownerUserId && user.id === ownerUserId);
   const canViewEvidence = Boolean(ownerUserId);
-
-  const onSafetyMenu = useCallback(() => {
-    if (!id || !ownerUserId || isOwner) return;
-    Alert.alert('Request options', undefined, [
-      {
-        text: 'Hide from feed',
-        onPress: () =>
-          void (async () => {
-            try {
-              await withUnauthorizedRecovery(signOut, (token) => hideBeg(token, id));
-              Alert.alert('Hidden', 'This request will no longer appear in your feed.', [
-                { text: 'OK', onPress: () => router.back() },
-              ]);
-            } catch (e) {
-              Alert.alert('Could not hide request', formatPlizApiErrorForUser(e));
-            }
-          })(),
-      },
-      {
-        text: 'Block user',
-        style: 'destructive',
-        onPress: () =>
-          void (async () => {
-            try {
-              await withUnauthorizedRecovery(signOut, (token) => blockUser(token, ownerUserId));
-              Alert.alert('User blocked', 'You will no longer see content from this user.', [
-                { text: 'OK', onPress: () => router.back() },
-              ]);
-            } catch (e) {
-              Alert.alert('Could not block user', formatPlizApiErrorForUser(e));
-            }
-          })(),
-      },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
-  }, [id, ownerUserId, isOwner, signOut]);
 
   const isAwaitingApproval = isOwner && approved === false;
   const ownerWithdrawalPending =

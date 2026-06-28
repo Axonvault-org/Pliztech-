@@ -12,10 +12,10 @@ export function VerifiedByPlzBadge({ compact = false }: VerifiedByPlzBadgeProps)
     <View
       style={[styles.badge, compact && styles.badgeCompact]}
       accessibilityRole="text"
-      accessibilityLabel="Request verified by Plz"
+      accessibilityLabel="Verified request"
     >
       <Ionicons name="shield-checkmark" size={compact ? 12 : 14} color="#047857" />
-      <Text style={[styles.text, compact && styles.textCompact]}>Verified by Plz</Text>
+      <Text style={[styles.text, compact && styles.textCompact]}>Verified Request</Text>
     </View>
   );
 }

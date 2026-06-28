@@ -74,15 +74,21 @@ export function RequestCard({ request }: RequestCardProps) {
             accessibilityRole="button"
             accessibilityLabel={`Request by ${name}`}
           >
-            <Text style={styles.name} numberOfLines={1}>
-              {name}
-            </Text>
-            {badge === VERIFIED_BY_PLZ_BADGE ? (
-              <VerifiedByPlzBadge compact />
-            ) : null}
-            <Text style={styles.timeAgo}>
-              {expiresInLabel ? `${timeAgo} · ${expiresInLabel}` : timeAgo}
-            </Text>
+            <View style={styles.headerCopy}>
+              <Text style={styles.name} numberOfLines={1}>
+                {name}
+              </Text>
+              <View style={styles.metaRow}>
+                {badge === VERIFIED_BY_PLZ_BADGE ? (
+                  <VerifiedByPlzBadge compact />
+                ) : (
+                  <View style={styles.metaSpacer} />
+                )}
+                <Text style={styles.timeAgo} numberOfLines={1}>
+                  {expiresInLabel ? `${timeAgo} · ${expiresInLabel}` : timeAgo}
+                </Text>
+              </View>
+            </View>
           </TouchableOpacity>
         </Link>
       </View>
@@ -148,28 +154,41 @@ const styles = StyleSheet.create({
   },
   topRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: 10,
     gap: 12,
   },
   topRowLink: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
+    minWidth: 0,
+  },
+  headerCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
   },
   cardBody: {
     padding: 0,
   },
   name: {
-    flex: 1,
     fontSize: 16,
     fontWeight: '700',
     color: HEADING,
   },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  metaSpacer: {
+    flex: 1,
+  },
   timeAgo: {
-    fontSize: 13,
+    flexShrink: 0,
+    fontSize: 12,
     color: BODY,
+    textAlign: 'right',
   },
   text: {
     fontSize: 14,

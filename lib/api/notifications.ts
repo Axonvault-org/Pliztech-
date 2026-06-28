@@ -14,7 +14,9 @@ export type NotificationApiType =
   | 'evidence_flagged'
   | 'evidence_spam_alert'
   | 'evidence_visibility_changed'
-  | 'admin_chat_started';
+  | 'admin_chat_started'
+  | 'admin_chat_message'
+  | 'admin_broadcast';
 
 export type ApiNotification = {
   id: string;
@@ -43,6 +45,7 @@ export type NotificationListIcon =
   | 'heart'
   | 'checkmark-circle'
   | 'chatbubble'
+  | 'megaphone'
   | 'time'
   | 'alert-circle'
   | 'gift';
@@ -59,7 +62,25 @@ export type NotificationListItem = {
   /** Deep link to request detail when present. */
   begId?: string;
   donationId?: string;
+  /** Support chat deep link when present. */
+  chatId?: string;
+  /** Support broadcast deep link when present. */
+  broadcastId?: string;
+  /** Original API notification type for routing. */
+  notificationType: string;
 };
+
+export function isSupportChatNotificationType(type: string): boolean {
+  return type === 'admin_chat_started' || type === 'admin_chat_message';
+}
+
+export function isSupportBroadcastNotificationType(type: string): boolean {
+  return type === 'admin_broadcast';
+}
+
+export function isSupportMessagesNotificationType(type: string): boolean {
+  return isSupportChatNotificationType(type) || isSupportBroadcastNotificationType(type);
+}
 
 function parseJsonRecord(value: unknown): Record<string, unknown> | null {
   if (value != null && typeof value === 'object' && !Array.isArray(value)) {
@@ -110,7 +131,10 @@ function iconForType(type: string): { icon: NotificationListIcon; iconColor: str
     case 'message_received':
     case 'donor_reply':
     case 'admin_chat_started':
+    case 'admin_chat_message':
       return { icon: 'chatbubble', iconColor: '#8B5CF6' };
+    case 'admin_broadcast':
+      return { icon: 'megaphone', iconColor: '#7C3AED' };
     case 'evidence_flagged':
     case 'evidence_spam_alert':
     case 'evidence_visibility_changed':
@@ -124,6 +148,8 @@ export function mapApiNotificationToListItem(n: ApiNotification): NotificationLi
   const data = parseJsonRecord(n.data);
   const begId = readString(data, 'beg_id', 'begId');
   const donationId = readString(data, 'donation_id', 'donationId');
+  const chatId = readString(data, 'chat_id', 'chatId');
+  const broadcastId = readString(data, 'broadcast_id', 'broadcastId');
   const { icon, iconColor } = iconForType(n.type);
 
   return {
@@ -134,8 +160,11 @@ export function mapApiNotificationToListItem(n: ApiNotification): NotificationLi
     unread: !n.is_read,
     icon,
     iconColor,
+    notificationType: n.type,
     ...(begId ? { begId } : {}),
     ...(donationId ? { donationId } : {}),
+    ...(chatId ? { chatId } : {}),
+    ...(broadcastId ? { broadcastId } : {}),
   };
 }
 

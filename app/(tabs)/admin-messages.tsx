@@ -1,4 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -34,6 +35,7 @@ import {
 } from '@/lib/api/admin-chat';
 import { formatPlizApiErrorForUser } from '@/lib/api/types';
 import { withUnauthorizedRecovery } from '@/lib/auth/session-expired';
+import { useUnreadSupportMessageCount } from '@/hooks/useUnreadSupportMessageCount';
 
 const ACCENT = '#2E8BEA';
 
@@ -192,6 +194,23 @@ function FilterChip({
 
 export default function AdminMessagesScreen() {
   const { signOut } = useCurrentUser();
+  const { refreshUnreadSupportCount } = useUnreadSupportMessageCount();
+  const params = useLocalSearchParams<{
+    chatId?: string | string[];
+    broadcastId?: string | string[];
+  }>();
+  const deepLinkChatId = useMemo(() => {
+    const raw = params.chatId;
+    if (typeof raw === 'string' && raw.length > 0) return raw;
+    if (Array.isArray(raw) && typeof raw[0] === 'string' && raw[0].length > 0) return raw[0];
+    return null;
+  }, [params.chatId]);
+  const deepLinkBroadcastId = useMemo(() => {
+    const raw = params.broadcastId;
+    if (typeof raw === 'string' && raw.length > 0) return raw;
+    if (Array.isArray(raw) && typeof raw[0] === 'string' && raw[0].length > 0) return raw[0];
+    return null;
+  }, [params.broadcastId]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [chats, setChats] = useState<AdminChatSummary[]>([]);
@@ -230,22 +249,53 @@ export default function AdminMessagesScreen() {
           getUserChatMessages(token, chatId)
         );
         setMessages(result.messages);
+        void refreshUnreadSupportCount();
       } catch (e) {
         Alert.alert('Could not load chat', formatPlizApiErrorForUser(e));
       } finally {
         setMessagesLoading(false);
       }
     },
-    [signOut]
+    [signOut, refreshUnreadSupportCount]
   );
 
   useEffect(() => {
     void load();
   }, [load]);
 
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        void refreshUnreadSupportCount();
+      };
+    }, [refreshUnreadSupportCount])
+  );
+
   useEffect(() => {
     if (activeChatId) void loadMessages(activeChatId);
   }, [activeChatId, loadMessages]);
+
+  useEffect(() => {
+    if (!deepLinkChatId || loading || activeChatId === deepLinkChatId) return;
+    const match = chats.find((chat) => chat.id === deepLinkChatId);
+    if (match) {
+      setActiveBroadcast(null);
+      setActiveChatId(deepLinkChatId);
+      setChats((prev) =>
+        prev.map((chat) => (chat.id === deepLinkChatId ? { ...chat, unreadCount: 0 } : chat))
+      );
+    }
+  }, [activeChatId, chats, deepLinkChatId, loading]);
+
+  useEffect(() => {
+    if (!deepLinkBroadcastId || loading || activeBroadcast?.id === deepLinkBroadcastId) return;
+    const match = broadcasts.find((broadcast) => broadcast.id === deepLinkBroadcastId);
+    if (match) {
+      setActiveChatId(null);
+      setActiveBroadcast(match);
+      setReplyDraft('');
+    }
+  }, [activeBroadcast?.id, broadcasts, deepLinkBroadcastId, loading]);
 
   useEffect(() => {
     if (!messagesLoading && messages.length > 0) {
