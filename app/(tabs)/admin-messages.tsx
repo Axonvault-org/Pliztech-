@@ -37,6 +37,7 @@ export default function AdminMessagesScreen() {
   const [draft, setDraft] = useState('');
   const [replyBroadcastId, setReplyBroadcastId] = useState<string | null>(null);
   const [replyDraft, setReplyDraft] = useState('');
+  const [sending, setSending] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
