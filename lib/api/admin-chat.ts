@@ -38,6 +38,12 @@ export type AdminBroadcast = {
   adminName: string;
   createdAt: string;
   hasReplied?: boolean;
+  isUnread?: boolean;
+  myReply?: {
+    id: string;
+    content: string;
+    createdAt: string;
+  } | null;
 };
 
 export type AdminBroadcastReply = {
@@ -45,6 +51,13 @@ export type AdminBroadcastReply = {
   broadcastId: string;
   content: string;
   createdAt: string;
+  userName?: string;
+};
+
+export type SupportUnreadCount = {
+  chatUnread: number;
+  broadcastUnread: number;
+  total: number;
 };
 
 async function authFetch(accessToken: string, path: string, init?: RequestInit): Promise<Response> {
@@ -157,6 +170,67 @@ export async function getUserBroadcasts(
     total: data.data.total ?? 0,
     pages: data.data.pages ?? 1,
   };
+}
+
+export async function getSupportUnreadCount(accessToken: string): Promise<SupportUnreadCount> {
+  const res = await authFetch(accessToken, '/api/chat/support-unread-count');
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    throw new PlizApiError('Invalid response from server', res.status);
+  }
+  const data = json as { success?: boolean; data?: SupportUnreadCount };
+  if (!res.ok || data.success !== true || !data.data) {
+    throw apiFailureFromResponseJson(json, res.status);
+  }
+  return {
+    chatUnread: data.data.chatUnread ?? 0,
+    broadcastUnread: data.data.broadcastUnread ?? 0,
+    total: data.data.total ?? 0,
+  };
+}
+
+export async function getUserBroadcast(
+  accessToken: string,
+  broadcastId: string
+): Promise<AdminBroadcast> {
+  const res = await authFetch(
+    accessToken,
+    `/api/chat/broadcasts/${encodeURIComponent(broadcastId)}`
+  );
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    throw new PlizApiError('Invalid response from server', res.status);
+  }
+  const data = json as { success?: boolean; data?: AdminBroadcast };
+  if (!res.ok || data.success !== true || !data.data) {
+    throw apiFailureFromResponseJson(json, res.status);
+  }
+  return data.data;
+}
+
+export async function markBroadcastRead(
+  accessToken: string,
+  broadcastId: string
+): Promise<void> {
+  const res = await authFetch(
+    accessToken,
+    `/api/chat/broadcasts/${encodeURIComponent(broadcastId)}/read`,
+    { method: 'PATCH' }
+  );
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    throw new PlizApiError('Invalid response from server', res.status);
+  }
+  const data = json as { success?: boolean };
+  if (!res.ok || data.success !== true) {
+    throw apiFailureFromResponseJson(json, res.status);
+  }
 }
 
 export async function replyToBroadcast(

@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { getUserAdminChats } from '@/lib/api/admin-chat';
+import { getSupportUnreadCount } from '@/lib/api/admin-chat';
 import { getAccessToken } from '@/lib/auth/access-token';
 import {
   isUnauthorizedSessionError,
@@ -10,14 +10,8 @@ import { useCurrentUser } from '@/contexts/CurrentUserContext';
 import { queryKeys } from '@/lib/query/query-keys';
 import { STALE_TIMES } from '@/lib/query/stale-times';
 
-function sumUnreadSupportMessages(
-  chats: Awaited<ReturnType<typeof getUserAdminChats>>
-): number {
-  return chats.reduce((total, chat) => total + (chat.unreadCount ?? 0), 0);
-}
-
 /**
- * Unread admin support chat messages for the floating chat button badge.
+ * Unread support inbox items (direct chats + broadcast announcements) for the FAB badge.
  */
 export function useUnreadSupportMessageCount() {
   const { user, signOut } = useCurrentUser();
@@ -29,16 +23,16 @@ export function useUnreadSupportMessageCount() {
       const token = await getAccessToken();
       if (!token) return 0;
       try {
-        const chats = await getUserAdminChats(token);
-        return sumUnreadSupportMessages(chats);
+        const counts = await getSupportUnreadCount(token);
+        return counts.total;
       } catch (e) {
         if (isUnauthorizedSessionError(e)) {
           const recovered = await recoverFromUnauthorized(signOut);
           if (recovered) {
             const token2 = await getAccessToken();
             if (token2) {
-              const chats = await getUserAdminChats(token2);
-              return sumUnreadSupportMessages(chats);
+              const counts = await getSupportUnreadCount(token2);
+              return counts.total;
             }
           }
         }

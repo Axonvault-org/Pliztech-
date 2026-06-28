@@ -25,8 +25,10 @@ import {
 } from '@/contexts/CurrentUserContext';
 import {
   getUserAdminChats,
+  getUserBroadcast,
   getUserBroadcasts,
   getUserChatMessages,
+  markBroadcastRead,
   replyToBroadcast,
   sendUserChatMessage,
   type AdminBroadcast,
@@ -223,6 +225,7 @@ export default function AdminMessagesScreen() {
   const [draft, setDraft] = useState('');
   const [replyDraft, setReplyDraft] = useState('');
   const [sending, setSending] = useState(false);
+  const [replySentNotice, setReplySentNotice] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
   const load = useCallback(async (opts?: { background?: boolean }) => {
@@ -287,15 +290,76 @@ export default function AdminMessagesScreen() {
     }
   }, [activeChatId, chats, deepLinkChatId, loading]);
 
+  const markBroadcastOpened = useCallback(
+    async (broadcast: AdminBroadcast) => {
+      if (!broadcast.isUnread) return;
+      try {
+        await withUnauthorizedRecovery(signOut, (token) =>
+          markBroadcastRead(token, broadcast.id)
+        );
+        setBroadcasts((prev) =>
+          prev.map((row) =>
+            row.id === broadcast.id ? { ...row, isUnread: false } : row
+          )
+        );
+        setActiveBroadcast((prev) =>
+          prev?.id === broadcast.id ? { ...prev, isUnread: false } : prev
+        );
+        void refreshUnreadSupportCount();
+      } catch {
+        // Non-blocking — inbox still opens.
+      }
+    },
+    [refreshUnreadSupportCount, signOut]
+  );
+
+  const openBroadcast = useCallback(
+    (broadcast: AdminBroadcast) => {
+      setActiveChatId(null);
+      setActiveBroadcast(broadcast);
+      setReplyDraft('');
+      setReplySentNotice(false);
+      void markBroadcastOpened(broadcast);
+    },
+    [markBroadcastOpened]
+  );
+
   useEffect(() => {
     if (!deepLinkBroadcastId || loading || activeBroadcast?.id === deepLinkBroadcastId) return;
     const match = broadcasts.find((broadcast) => broadcast.id === deepLinkBroadcastId);
     if (match) {
-      setActiveChatId(null);
-      setActiveBroadcast(match);
-      setReplyDraft('');
+      openBroadcast(match);
+      return;
     }
-  }, [activeBroadcast?.id, broadcasts, deepLinkBroadcastId, loading]);
+    void (async () => {
+      try {
+        const broadcast = await withUnauthorizedRecovery(signOut, (token) =>
+          getUserBroadcast(token, deepLinkBroadcastId)
+        );
+        setActiveChatId(null);
+        setActiveBroadcast(broadcast);
+        setReplyDraft('');
+        setReplySentNotice(false);
+        setBroadcasts((prev) => {
+          if (prev.some((row) => row.id === broadcast.id)) {
+            return prev.map((row) => (row.id === broadcast.id ? broadcast : row));
+          }
+          return [broadcast, ...prev];
+        });
+        void markBroadcastOpened(broadcast);
+      } catch {
+        // Deep link target missing — stay on inbox.
+      }
+    })();
+  }, [
+    activeBroadcast?.id,
+    broadcasts,
+    deepLinkBroadcastId,
+    loading,
+    markBroadcastOpened,
+    openBroadcast,
+    signOut,
+  ]);
 
   useEffect(() => {
     if (!messagesLoading && messages.length > 0) {
@@ -323,6 +387,7 @@ export default function AdminMessagesScreen() {
 
   const totalCount = chats.length + broadcasts.length;
   const unreadChatCount = chats.filter((chat) => (chat.unreadCount ?? 0) > 0).length;
+  const unreadBroadcastCount = broadcasts.filter((broadcast) => broadcast.isUnread).length;
 
   const activeChat = chats.find((chat) => chat.id === activeChatId) ?? null;
 
@@ -372,12 +437,24 @@ export default function AdminMessagesScreen() {
     if (!activeBroadcast || !replyDraft.trim() || sending) return;
     setSending(true);
     try {
-      await withUnauthorizedRecovery(signOut, (token) =>
+      const reply = await withUnauthorizedRecovery(signOut, (token) =>
         replyToBroadcast(token, activeBroadcast.id, replyDraft.trim())
       );
       setReplyDraft('');
-      Alert.alert('Reply sent', 'Support will see your response.');
-      setActiveBroadcast(null);
+      setReplySentNotice(true);
+      const updatedBroadcast: AdminBroadcast = {
+        ...activeBroadcast,
+        hasReplied: true,
+        myReply: {
+          id: reply.id,
+          content: reply.content,
+          createdAt: reply.createdAt,
+        },
+      };
+      setActiveBroadcast(updatedBroadcast);
+      setBroadcasts((prev) =>
+        prev.map((row) => (row.id === activeBroadcast.id ? updatedBroadcast : row))
+      );
     } catch (e) {
       Alert.alert('Could not send reply', formatPlizApiErrorForUser(e));
     } finally {
@@ -388,15 +465,10 @@ export default function AdminMessagesScreen() {
   const openChat = (chatId: string) => {
     setActiveBroadcast(null);
     setActiveChatId(chatId);
+    setReplySentNotice(false);
     setChats((prev) =>
       prev.map((chat) => (chat.id === chatId ? { ...chat, unreadCount: 0 } : chat))
     );
-  };
-
-  const openBroadcast = (broadcast: AdminBroadcast) => {
-    setActiveChatId(null);
-    setActiveBroadcast(broadcast);
-    setReplyDraft('');
   };
 
   const backToInbox = () => {
@@ -405,6 +477,7 @@ export default function AdminMessagesScreen() {
     setMessages([]);
     setDraft('');
     setReplyDraft('');
+    setReplySentNotice(false);
   };
 
   if (activeChat) {
@@ -505,7 +578,7 @@ export default function AdminMessagesScreen() {
       <Screen backgroundColor="#FFFFFF" contentStyle={styles.flex}>
         <AppHeaderTitleRow
           title={activeBroadcast.title}
-          subtitle="Announcement"
+          subtitle={activeBroadcast.hasReplied ? 'Announcement · You replied' : 'Announcement · Tap below to reply'}
           onPressBack={backToInbox}
           backIconColor="#1F2937"
           showNotification={false}
@@ -528,6 +601,24 @@ export default function AdminMessagesScreen() {
               </View>
               <Text style={styles.broadcastBody}>{activeBroadcast.content}</Text>
             </View>
+
+            {activeBroadcast.myReply ? (
+              <View style={styles.myReplyCard}>
+                <Text style={styles.myReplyLabel}>Your reply</Text>
+                <Text style={styles.myReplyBody}>{activeBroadcast.myReply.content}</Text>
+                <Text style={styles.myReplyTime}>
+                  {formatMessageTime(activeBroadcast.myReply.createdAt)}
+                </Text>
+              </View>
+            ) : (
+              <Text style={styles.broadcastReplyHint}>
+                Have feedback or a question? Send a reply below — the Plz team will see it.
+              </Text>
+            )}
+
+            {replySentNotice ? (
+              <Text style={styles.replySentNotice}>Reply sent. Support will see your response.</Text>
+            ) : null}
           </ScrollView>
 
           <View style={styles.composerWrap}>
@@ -594,8 +685,19 @@ export default function AdminMessagesScreen() {
         </Pressable>
       </View>
 
-      {unreadChatCount > 0 ? (
-        <Text style={styles.unreadHint}>{unreadChatCount} unread conversation{unreadChatCount === 1 ? '' : 's'}</Text>
+      {unreadChatCount > 0 || unreadBroadcastCount > 0 ? (
+        <Text style={styles.unreadHint}>
+          {[
+            unreadChatCount > 0
+              ? `${unreadChatCount} unread conversation${unreadChatCount === 1 ? '' : 's'}`
+              : null,
+            unreadBroadcastCount > 0
+              ? `${unreadBroadcastCount} new announcement${unreadBroadcastCount === 1 ? '' : 's'}`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+        </Text>
       ) : null}
 
       {loading ? (
@@ -644,8 +746,15 @@ export default function AdminMessagesScreen() {
             return (
               <InboxRow
                 title={item.broadcast.title}
-                preview={item.broadcast.content}
+                preview={
+                  item.broadcast.isUnread
+                    ? 'New announcement — tap to read and reply'
+                    : item.broadcast.hasReplied
+                      ? `You: ${item.broadcast.myReply?.content ?? 'Replied'}`
+                      : item.broadcast.content
+                }
                 timeLabel={formatInboxTime(item.broadcast.createdAt)}
+                unread={item.broadcast.isUnread}
                 avatarName={item.broadcast.adminName}
                 avatarVariant="announcement"
                 onPress={() => openBroadcast(item.broadcast)}
@@ -983,5 +1092,44 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#374151',
     lineHeight: 22,
+  },
+  broadcastReplyHint: {
+    marginTop: 16,
+    fontSize: 14,
+    color: '#6B7280',
+    lineHeight: 20,
+  },
+  myReplyCard: {
+    marginTop: 16,
+    backgroundColor: '#EFF6FF',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    padding: 14,
+  },
+  myReplyLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: ACCENT,
+    marginBottom: 6,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  myReplyBody: {
+    fontSize: 15,
+    color: '#111827',
+    lineHeight: 21,
+  },
+  myReplyTime: {
+    fontSize: 11,
+    color: '#9CA3AF',
+    marginTop: 8,
+    alignSelf: 'flex-end',
+  },
+  replySentNotice: {
+    marginTop: 12,
+    fontSize: 13,
+    color: '#059669',
+    fontWeight: '600',
   },
 });
