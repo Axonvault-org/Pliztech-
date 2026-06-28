@@ -1,5 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { createElement } from 'react';
+import { createElement, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -42,6 +42,14 @@ export function BegEvidenceViewerModal({
   const selected = evidence[safeIndex] ?? null;
   const selectedUrl = selected?.url ?? null;
   const selectedIsPdf = selected ? isPdfEvidence(selected) : false;
+  const shouldBlur = Boolean(selected?.shouldBlur);
+  const [revealedIds, setRevealedIds] = useState<Set<string>>(new Set());
+  const isRevealed = selected ? revealedIds.has(selected.id) : false;
+
+  const revealSelected = () => {
+    if (!selected) return;
+    setRevealedIds((prev) => new Set(prev).add(selected.id));
+  };
 
   return (
     <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
@@ -108,7 +116,16 @@ export function BegEvidenceViewerModal({
                 </Pressable>
               </View>
             ) : (
-              <Image source={{ uri: selectedUrl }} style={styles.image} resizeMode="contain" />
+              <View style={styles.imageWrap}>
+                <Image source={{ uri: selectedUrl }} style={styles.image} resizeMode="contain" />
+                {shouldBlur && !isRevealed ? (
+                  <Pressable style={styles.blurOverlay} onPress={revealSelected}>
+                    <Ionicons name="eye-off-outline" size={28} color="#FFFFFF" />
+                    <Text style={styles.blurTitle}>Sensitive content</Text>
+                    <Text style={styles.blurText}>Tap to view this image</Text>
+                  </Pressable>
+                ) : null}
+              </View>
             )}
           </View>
 
@@ -207,6 +224,29 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     borderRadius: 12,
+  },
+  imageWrap: {
+    flex: 1,
+    position: 'relative',
+  },
+  blurOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(17, 24, 39, 0.82)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+    padding: 24,
+    gap: 8,
+  },
+  blurTitle: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  blurText: {
+    color: '#E5E7EB',
+    fontSize: 14,
+    textAlign: 'center',
   },
   centerState: {
     flex: 1,

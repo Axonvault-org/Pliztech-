@@ -1,15 +1,25 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
-import { Fragment, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Fragment, useEffect, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 
 import { AppHeaderTitleRow } from '@/components/layout/AppHeaderTitleRow';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
+import { getContactInfo, type ContactInfo } from '@/lib/api/contact';
 import { FAQ_SECTIONS } from '@/lib/content/legal';
 
 export default function HelpCenterScreen() {
   const [openQuestion, setOpenQuestion] = useState<string | null>('About Plz-What is Plz?');
+  const [contact, setContact] = useState<ContactInfo | null>(null);
+  const [contactLoading, setContactLoading] = useState(true);
+
+  useEffect(() => {
+    void getContactInfo()
+      .then(setContact)
+      .catch(() => setContact(null))
+      .finally(() => setContactLoading(false));
+  }, []);
 
   return (
     <Screen backgroundColor="#F9FAFB" scrollable>
@@ -29,6 +39,23 @@ export default function HelpCenterScreen() {
           </View>
           <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
         </Pressable>
+
+        <View style={styles.abuseCard}>
+          <Text style={styles.abuseTitle}>Report abusive content</Text>
+          {contactLoading ? (
+            <ActivityIndicator color="#355C7D" />
+          ) : contact ? (
+            <>
+              <Text style={styles.abuseText}>{contact.reportAbuse.description}</Text>
+              <Text style={styles.abuseEmail}>{contact.reportAbuse.email}</Text>
+              <Text style={styles.abuseMeta}>{contact.reportAbuse.responseTime}</Text>
+            </>
+          ) : (
+            <Text style={styles.abuseText}>
+              Use the flag icon on requests, profiles, or stories to report content in the app.
+            </Text>
+          )}
+        </View>
 
         <View style={styles.faqHeader}>
           <Text style={styles.sectionTitle}>FAQ</Text>
@@ -114,6 +141,33 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#6B7280',
     lineHeight: 18,
+  },
+  abuseCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    padding: 16,
+    gap: 6,
+  },
+  abuseTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#991B1B',
+  },
+  abuseText: {
+    fontSize: 13,
+    color: '#6B7280',
+    lineHeight: 18,
+  },
+  abuseEmail: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  abuseMeta: {
+    fontSize: 12,
+    color: '#9CA3AF',
   },
   faqHeader: {
     gap: 4,

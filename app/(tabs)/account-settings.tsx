@@ -171,6 +171,30 @@ export default function AccountSettingsScreen() {
         />
       </SettingsSection>
 
+      <SettingsSection title="Safety">
+        <SettingsRow
+          icon="ban-outline"
+          title="Blocked users"
+          subtitle="Manage people you have blocked"
+          onPress={() => router.push('/(tabs)/blocked-users' as import('expo-router').Href)}
+          isLast={false}
+        />
+        <SettingsRow
+          icon="eye-off-outline"
+          title="Hidden requests"
+          subtitle="Requests hidden from your feed"
+          onPress={() => router.push('/(tabs)/hidden-requests' as import('expo-router').Href)}
+          isLast={false}
+        />
+        <SettingsRow
+          icon="chatbubbles-outline"
+          title="Support messages"
+          subtitle="Direct chats and announcements from Plz"
+          onPress={() => router.push('/(tabs)/admin-messages' as import('expo-router').Href)}
+          isLast
+        />
+      </SettingsSection>
+
       <SettingsSection title="Data & Privacy">
         <SettingsRow
           icon="download-outline"

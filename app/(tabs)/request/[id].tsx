@@ -24,20 +24,27 @@ import { RequestDetailHeader } from '@/components/request/RequestDetailHeader';
 import { RequestDonorList } from '@/components/request/RequestDonorList';
 import { RequesterAvatar } from '@/components/request/RequesterAvatar';
 import { MemberProfileModal } from '@/components/profile/MemberProfileModal';
+import { ReportContentSheet, type ReportTarget } from '@/components/safety/ReportContentSheet';
+import { VerifiedByPlzBadge } from '@/components/safety/VerifiedByPlzBadge';
 import { Screen } from '@/components/Screen';
 import { REQUEST_CATEGORIES } from '@/constants/categories';
 import {
     begFeedItemToRequestDetail,
     getBegById,
+    hideBeg,
+    VERIFIED_BY_PLZ_BADGE,
 } from '@/lib/api/beg';
+import { blockUser } from '@/lib/api/blocks';
 import { initializeDonation, getBegDonations, type BegDonationApiItem } from '@/lib/api/donations';
 import {
   deleteBegEvidence,
   getBegEvidence,
   uploadBegEvidence,
+  updateEvidenceSensitivity,
   type BegEvidenceItem,
   type EvidenceUploadFile,
 } from '@/lib/api/evidence';
+import { reportBeg } from '@/lib/api/reports';
 import { getReactions, toggleReaction, type ReactionsPayload } from '@/lib/api/reactions';
 import { formatPlizApiErrorForUser } from '@/lib/api/types';
 import { getPaymentDonationCallbackUrl, getPaymentWebCallbackUrl } from '@/lib/donation/payment-callback-url';
@@ -144,6 +151,8 @@ export default function RequestDetailScreen() {
   const [evidenceUploading, setEvidenceUploading] = useState(false);
   const [evidenceViewerOpen, setEvidenceViewerOpen] = useState(false);
   const [selectedEvidenceIndex, setSelectedEvidenceIndex] = useState(0);
+  const [reportVisible, setReportVisible] = useState(false);
+  const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
 
   const loadRequest = useCallback(async () => {
     if (!id) {
@@ -314,6 +323,29 @@ export default function RequestDetailScreen() {
       setEvidenceUploading(false);
     }
   }, [id, evidenceUploading, loadEvidence]);
+
+  const openReportBeg = useCallback(() => {
+    if (!id || !request) return;
+    setReportTarget({ type: 'beg', id, label: request.text });
+    setReportVisible(true);
+  }, [id, request]);
+
+  const onToggleEvidenceSensitivity = useCallback(
+    (item: BegEvidenceItem, next: boolean) => {
+      if (!id) return;
+      void (async () => {
+        try {
+          const token = await getAccessToken();
+          if (!token) throw new Error('Please sign in again.');
+          await updateEvidenceSensitivity(token, id, item.id, next);
+          await loadEvidence();
+        } catch (e) {
+          Alert.alert('Could not update sensitivity', formatPlizApiErrorForUser(e));
+        }
+      })();
+    },
+    [id, loadEvidence]
+  );
 
   const onDeleteEvidence = useCallback(
     (item: BegEvidenceItem) => {
@@ -605,6 +637,43 @@ export default function RequestDetailScreen() {
   const isOwner =
     Boolean(user?.id && ownerUserId && user.id === ownerUserId);
   const canViewEvidence = Boolean(ownerUserId);
+
+  const onSafetyMenu = useCallback(() => {
+    if (!id || !ownerUserId || isOwner) return;
+    Alert.alert('Request options', undefined, [
+      {
+        text: 'Hide from feed',
+        onPress: () =>
+          void (async () => {
+            try {
+              await withUnauthorizedRecovery(signOut, (token) => hideBeg(token, id));
+              Alert.alert('Hidden', 'This request will no longer appear in your feed.', [
+                { text: 'OK', onPress: () => router.back() },
+              ]);
+            } catch (e) {
+              Alert.alert('Could not hide request', formatPlizApiErrorForUser(e));
+            }
+          })(),
+      },
+      {
+        text: 'Block user',
+        style: 'destructive',
+        onPress: () =>
+          void (async () => {
+            try {
+              await withUnauthorizedRecovery(signOut, (token) => blockUser(token, ownerUserId));
+              Alert.alert('User blocked', 'You will no longer see content from this user.', [
+                { text: 'OK', onPress: () => router.back() },
+              ]);
+            } catch (e) {
+              Alert.alert('Could not block user', formatPlizApiErrorForUser(e));
+            }
+          })(),
+      },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  }, [id, ownerUserId, isOwner, signOut]);
+
   const isAwaitingApproval = isOwner && approved === false;
   const ownerWithdrawalPending =
     ownerWithdrawal != null &&
@@ -725,9 +794,8 @@ export default function RequestDetailScreen() {
       >
         <View ref={pageContentRef} style={styles.pageContent}>
           <RequestDetailHeader
-            onReportPress={() =>
-              router.push('/(tabs)/report-issue' as import('expo-router').Href)
-            }
+            onReportPress={openReportBeg}
+            onMenuPress={!isOwner && ownerUserId ? onSafetyMenu : undefined}
           />
 
           <View style={styles.requesterRow}>
@@ -754,7 +822,9 @@ export default function RequestDetailScreen() {
                     <Text style={[styles.name, styles.nameLink]} numberOfLines={1}>
                       {name}
                     </Text>
-                    {badge ? (
+                    {badge === VERIFIED_BY_PLZ_BADGE || (approved && !isAwaitingApproval) ? (
+                      <VerifiedByPlzBadge compact />
+                    ) : badge ? (
                       <View style={styles.badge}>
                         <Text style={styles.badgeText}>{badge}</Text>
                       </View>
@@ -775,7 +845,9 @@ export default function RequestDetailScreen() {
                   <Text style={styles.name} numberOfLines={1}>
                     {name}
                   </Text>
-                  {badge ? (
+                  {approved && !isAwaitingApproval ? (
+                    <VerifiedByPlzBadge compact />
+                  ) : badge ? (
                     <View style={styles.badge}>
                       <Text style={styles.badgeText}>{badge}</Text>
                     </View>
@@ -943,7 +1015,19 @@ export default function RequestDetailScreen() {
                       </Text>
                       <Text style={styles.evidenceMeta}>
                         {item.fileType} · {Math.ceil(item.fileSize / 1024)} KB
+                        {item.isFlagged ? ' · Under review' : ''}
                       </Text>
+                      {isOwner ? (
+                        <View style={styles.evidenceSensitiveRow}>
+                          <Text style={styles.evidenceSensitiveLabel}>Sensitive</Text>
+                          <Switch
+                            value={Boolean(item.isSensitive)}
+                            onValueChange={(next) => onToggleEvidenceSensitivity(item, next)}
+                            trackColor={{ false: '#E5E7EB', true: '#2E8BEA' }}
+                            thumbColor="#FFFFFF"
+                          />
+                        </View>
+                      ) : null}
                     </View>
                     {item.url ? (
                       <Pressable
@@ -1183,6 +1267,22 @@ export default function RequestDetailScreen() {
         loading={evidenceLoading}
         onClose={() => setEvidenceViewerOpen(false)}
         onSelectIndex={setSelectedEvidenceIndex}
+      />
+      <ReportContentSheet
+        visible={reportVisible}
+        target={reportTarget}
+        onClose={() => {
+          setReportVisible(false);
+          setReportTarget(null);
+        }}
+        onSubmit={async (body) => {
+          if (!reportTarget) return;
+          await withUnauthorizedRecovery(signOut, async (token) => {
+            if (reportTarget.type === 'beg') {
+              await reportBeg(token, reportTarget.id, body);
+            }
+          });
+        }}
       />
     </Screen>
   );
@@ -1596,6 +1696,16 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     fontSize: 12,
     marginTop: 2,
+  },
+  evidenceSensitiveRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 6,
+  },
+  evidenceSensitiveLabel: {
+    fontSize: 12,
+    color: '#374151',
   },
   evidenceIconButton: {
     width: 34,

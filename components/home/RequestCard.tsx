@@ -7,6 +7,8 @@ import { ProgressBar } from '@/components/ProgressBar';
 import { BegEvidenceButton } from '@/components/evidence/BegEvidenceButton';
 import { BegCardDonateButton } from '@/components/request/BegCardDonateButton';
 import { RequesterAvatar } from '@/components/request/RequesterAvatar';
+import { VerifiedByPlzBadge } from '@/components/safety/VerifiedByPlzBadge';
+import { VERIFIED_BY_PLZ_BADGE } from '@/lib/api/beg';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
 
 import type { TrendingRequest } from '@/lib/types/home';
@@ -45,6 +47,7 @@ export function RequestCard({ request }: RequestCardProps) {
     evidenceCount,
     ownerUserId,
     canDonate,
+    badge,
   } = request;
 
   const href = { pathname: '/(tabs)/request/[id]' as const, params: { id } };
@@ -74,6 +77,9 @@ export function RequestCard({ request }: RequestCardProps) {
             <Text style={styles.name} numberOfLines={1}>
               {name}
             </Text>
+            {badge === VERIFIED_BY_PLZ_BADGE ? (
+              <VerifiedByPlzBadge compact />
+            ) : null}
             <Text style={styles.timeAgo}>
               {expiresInLabel ? `${timeAgo} · ${expiresInLabel}` : timeAgo}
             </Text>

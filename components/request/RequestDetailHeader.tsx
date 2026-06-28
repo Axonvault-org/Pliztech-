@@ -13,6 +13,8 @@ const NOTIFICATIONS_HREF = '/(tabs)/notifications' as Href;
 export type RequestDetailHeaderProps = {
   /** Report / flag this request (Figma: top-right flag). */
   onReportPress?: () => void;
+  /** Optional overflow menu (hide, block, etc.). */
+  onMenuPress?: () => void;
 };
 
 function goBackOrHome() {
@@ -23,7 +25,7 @@ function goBackOrHome() {
   }
 }
 
-export function RequestDetailHeader({ onReportPress }: RequestDetailHeaderProps) {
+export function RequestDetailHeader({ onReportPress, onMenuPress }: RequestDetailHeaderProps) {
   const { unreadCount } = useUnreadNotificationCount();
 
   const handleReport = () => {
@@ -52,10 +54,20 @@ export function RequestDetailHeader({ onReportPress }: RequestDetailHeaderProps)
           onPress={() => router.push(NOTIFICATIONS_HREF)}
           unreadCount={unreadCount}
         />
+        {onMenuPress ? (
+          <Pressable
+            style={styles.iconCircle}
+            onPress={onMenuPress}
+            accessibilityLabel="More options"
+            accessibilityRole="button"
+          >
+            <Ionicons name="ellipsis-horizontal" size={20} color="#1F2937" />
+          </Pressable>
+        ) : null}
         <Pressable
           style={styles.iconCircle}
           onPress={handleReport}
-          accessibilityLabel="Report or flag this request"
+          accessibilityLabel="Report this request"
           accessibilityRole="button"
         >
           <Ionicons name="flag-outline" size={20} color="#1F2937" />

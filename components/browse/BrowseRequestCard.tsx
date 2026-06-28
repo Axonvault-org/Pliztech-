@@ -8,6 +8,8 @@ import { ProgressBar } from '@/components/ProgressBar';
 import { BegEvidenceButton } from '@/components/evidence/BegEvidenceButton';
 import { BegCardDonateButton } from '@/components/request/BegCardDonateButton';
 import { RequesterAvatar } from '@/components/request/RequesterAvatar';
+import { VerifiedByPlzBadge } from '@/components/safety/VerifiedByPlzBadge';
+import { VERIFIED_BY_PLZ_BADGE } from '@/lib/api/beg';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
 import { REQUEST_CATEGORIES } from '@/constants/categories';
 
@@ -84,7 +86,9 @@ export function BrowseRequestCard({ request, onPress }: BrowseRequestCardProps) 
                 <Text style={styles.name} numberOfLines={1}>
                   {name}
                 </Text>
-                {badge ? (
+                {badge === VERIFIED_BY_PLZ_BADGE ? (
+                  <VerifiedByPlzBadge compact />
+                ) : badge ? (
                   <View style={styles.badge}>
                     <Text style={styles.badgeText}>{badge}</Text>
                   </View>

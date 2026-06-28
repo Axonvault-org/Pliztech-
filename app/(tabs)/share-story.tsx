@@ -75,7 +75,12 @@ export default function ShareStoryScreen() {
         setSuccessMessage(message);
       });
     } catch (e) {
-      Alert.alert('Could not submit', formatPlizApiErrorForUser(e));
+      Alert.alert(
+        'Could not submit',
+        formatPlizApiErrorForUser(e).includes('objectionable content')
+          ? 'Your story includes language that is not allowed on Plz. Please revise it and try again.'
+          : formatPlizApiErrorForUser(e)
+      );
     } finally {
       setSubmitting(false);
     }

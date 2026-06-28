@@ -10,7 +10,11 @@ export type NotificationApiType =
   | 'message_received'
   | 'donor_reply'
   | 'beg_expiring'
-  | 'beg_expired';
+  | 'beg_expired'
+  | 'evidence_flagged'
+  | 'evidence_spam_alert'
+  | 'evidence_visibility_changed'
+  | 'admin_chat_started';
 
 export type ApiNotification = {
   id: string;
@@ -105,7 +109,12 @@ function iconForType(type: string): { icon: NotificationListIcon; iconColor: str
       return { icon: 'alert-circle', iconColor: '#DC2626' };
     case 'message_received':
     case 'donor_reply':
+    case 'admin_chat_started':
       return { icon: 'chatbubble', iconColor: '#8B5CF6' };
+    case 'evidence_flagged':
+    case 'evidence_spam_alert':
+    case 'evidence_visibility_changed':
+      return { icon: 'alert-circle', iconColor: '#DC2626' };
     default:
       return { icon: 'gift', iconColor: '#38BDF8' };
   }

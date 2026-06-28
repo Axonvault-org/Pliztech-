@@ -10,6 +10,11 @@ export type BegEvidenceItem = {
   fileSize: number;
   url: string | null;
   createdAt: string;
+  isFlagged?: boolean;
+  isSensitive?: boolean;
+  sensitiveReason?: string | null;
+  adminVisibility?: boolean | null;
+  shouldBlur?: boolean;
 };
 
 export type EvidenceUploadFile = {
@@ -17,6 +22,8 @@ export type EvidenceUploadFile = {
   name: string;
   type: string;
   file?: File;
+  isSensitive?: boolean;
+  sensitiveReason?: string;
 };
 
 export async function getBegEvidence(
@@ -71,6 +78,13 @@ export async function uploadBegEvidence(
       name: file.name,
       type: file.type,
     } as unknown as Blob);
+  }
+
+  if (file.isSensitive) {
+    body.append('isSensitive', 'true');
+    if (file.sensitiveReason?.trim()) {
+      body.append('sensitiveReason', file.sensitiveReason.trim());
+    }
   }
 
   const res = await fetch(apiUrl(`/api/begs/${encodeURIComponent(begId)}/evidence`), {
@@ -130,4 +144,45 @@ export async function deleteBegEvidence(
   if (!res.ok || data?.success === false) {
     throw apiFailureFromResponseJson(json, res.status);
   }
+}
+
+export async function updateEvidenceSensitivity(
+  accessToken: string,
+  begId: string,
+  evidenceId: string,
+  isSensitive: boolean,
+  sensitiveReason?: string
+): Promise<BegEvidenceItem> {
+  const res = await fetch(
+    apiUrl(
+      `/api/begs/${encodeURIComponent(begId)}/evidence/${encodeURIComponent(evidenceId)}/sensitivity`
+    ),
+    {
+      method: 'PATCH',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      credentials: isWebAuthEnvironment() ? 'include' : 'omit',
+      body: JSON.stringify({
+        isSensitive,
+        ...(sensitiveReason?.trim() ? { sensitiveReason: sensitiveReason.trim() } : {}),
+      }),
+    }
+  );
+
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    throw new PlizApiError('Invalid response from server', res.status);
+  }
+
+  const data = json as { success?: boolean; data?: BegEvidenceItem };
+  if (!res.ok || data.success !== true || !data.data) {
+    throw apiFailureFromResponseJson(json, res.status);
+  }
+
+  return data.data;
 }
