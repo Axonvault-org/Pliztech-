@@ -13,13 +13,21 @@ export type AdminChatMessage = {
   createdAt: string;
 };
 
+export type AdminChatLastMessage = {
+  content: string;
+  senderType: 'admin' | 'user';
+  createdAt: string;
+};
+
 export type AdminChatSummary = {
   id: string;
   status: string;
-  user: { id: string; name: string; isOnline?: boolean };
+  user?: { id: string; name: string; isOnline?: boolean };
   admin: { id: string; name: string };
+  lastMessage?: AdminChatLastMessage | null;
   messages?: AdminChatMessage[];
-  createdAt: string;
+  unreadCount?: number;
+  createdAt?: string;
   updatedAt: string;
 };
 
