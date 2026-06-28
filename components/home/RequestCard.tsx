@@ -8,6 +8,7 @@ import { BegEvidenceButton } from '@/components/evidence/BegEvidenceButton';
 import { BegCardDonateButton } from '@/components/request/BegCardDonateButton';
 import { RequesterAvatar } from '@/components/request/RequesterAvatar';
 import { VerifiedByPlzBadge } from '@/components/safety/VerifiedByPlzBadge';
+import { VerificationStatusDot } from '@/components/safety/VerificationStatusDot';
 import { VERIFIED_BY_PLZ_BADGE } from '@/lib/api/beg';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
 
@@ -54,6 +55,7 @@ export function RequestCard({ request }: RequestCardProps) {
   const isAnonymous = name.toLowerCase() === 'anonymous';
   const isOwner = Boolean(user?.id && ownerUserId && user.id === ownerUserId);
   const showActionButton = isOwner || Boolean(canDonate);
+  const isVerifiedRequest = badge === VERIFIED_BY_PLZ_BADGE;
 
   return (
     <View style={styles.cardWrapper}>
@@ -75,11 +77,14 @@ export function RequestCard({ request }: RequestCardProps) {
             accessibilityLabel={`Request by ${name}`}
           >
             <View style={styles.headerCopy}>
-              <Text style={styles.name} numberOfLines={1}>
-                {name}
-              </Text>
+              <View style={styles.nameRow}>
+                <Text style={styles.name} numberOfLines={1}>
+                  {name}
+                </Text>
+                <VerificationStatusDot verified={isVerifiedRequest} compact />
+              </View>
               <View style={styles.metaRow}>
-                {badge === VERIFIED_BY_PLZ_BADGE ? (
+                {isVerifiedRequest ? (
                   <VerifiedByPlzBadge compact />
                 ) : (
                   <View style={styles.metaSpacer} />
@@ -167,13 +172,21 @@ const styles = StyleSheet.create({
     minWidth: 0,
     gap: 4,
   },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    minWidth: 0,
+  },
   cardBody: {
     padding: 0,
   },
   name: {
+    flexShrink: 1,
     fontSize: 16,
     fontWeight: '700',
     color: HEADING,
+    minWidth: 0,
   },
   metaRow: {
     flexDirection: 'row',

@@ -26,13 +26,13 @@ import { RequesterAvatar } from '@/components/request/RequesterAvatar';
 import { MemberProfileModal } from '@/components/profile/MemberProfileModal';
 import { ReportContentSheet, type ReportTarget } from '@/components/safety/ReportContentSheet';
 import { VerifiedByPlzBadge } from '@/components/safety/VerifiedByPlzBadge';
+import { VerificationStatusDot } from '@/components/safety/VerificationStatusDot';
 import { Screen } from '@/components/Screen';
 import { REQUEST_CATEGORIES } from '@/constants/categories';
 import {
     begFeedItemToRequestDetail,
     getBegById,
     hideBeg,
-    VERIFIED_BY_PLZ_BADGE,
 } from '@/lib/api/beg';
 import { blockUser } from '@/lib/api/blocks';
 import { initializeDonation, getBegDonations, type BegDonationApiItem } from '@/lib/api/donations';
@@ -682,6 +682,7 @@ export default function RequestDetailScreen() {
   const canViewEvidence = Boolean(ownerUserId);
 
   const isAwaitingApproval = isOwner && approved === false;
+  const isVerifiedRequest = Boolean(approved && !isAwaitingApproval);
   const ownerWithdrawalPending =
     ownerWithdrawal != null &&
     (ownerWithdrawal.status === 'pending' || ownerWithdrawal.status === 'processing');
@@ -829,7 +830,8 @@ export default function RequestDetailScreen() {
                     <Text style={[styles.name, styles.nameLink]} numberOfLines={1}>
                       {name}
                     </Text>
-                    {badge === VERIFIED_BY_PLZ_BADGE || (approved && !isAwaitingApproval) ? (
+                    <VerificationStatusDot verified={isVerifiedRequest} />
+                    {isVerifiedRequest ? (
                       <VerifiedByPlzBadge compact />
                     ) : badge ? (
                       <View style={styles.badge}>
@@ -852,7 +854,8 @@ export default function RequestDetailScreen() {
                   <Text style={styles.name} numberOfLines={1}>
                     {name}
                   </Text>
-                  {approved && !isAwaitingApproval ? (
+                  <VerificationStatusDot verified={isVerifiedRequest} />
+                  {isVerifiedRequest ? (
                     <VerifiedByPlzBadge compact />
                   ) : badge ? (
                     <View style={styles.badge}>
@@ -1371,6 +1374,7 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
     marginBottom: 6,
+    minWidth: 0,
   },
   name: {
     fontSize: 18,
