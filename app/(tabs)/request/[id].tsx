@@ -671,6 +671,7 @@ export default function RequestDetailScreen() {
     ownerUserId,
     isAnonymous,
     approved,
+    ownerKycVerified,
     canDonate: canDonateFromApi,
     viewerDonation,
     begStatus,
@@ -683,6 +684,7 @@ export default function RequestDetailScreen() {
 
   const isAwaitingApproval = isOwner && approved === false;
   const isVerifiedRequest = Boolean(approved && !isAwaitingApproval);
+  const isOwnerKycVerified = Boolean(ownerKycVerified);
   const ownerWithdrawalPending =
     ownerWithdrawal != null &&
     (ownerWithdrawal.status === 'pending' || ownerWithdrawal.status === 'processing');
@@ -830,7 +832,7 @@ export default function RequestDetailScreen() {
                     <Text style={[styles.name, styles.nameLink]} numberOfLines={1}>
                       {name}
                     </Text>
-                    <VerificationStatusDot verified={isVerifiedRequest} />
+                    <VerificationStatusDot verified={isOwnerKycVerified} />
                     {isVerifiedRequest ? (
                       <VerifiedByPlzBadge compact />
                     ) : badge ? (
@@ -854,7 +856,7 @@ export default function RequestDetailScreen() {
                   <Text style={styles.name} numberOfLines={1}>
                     {name}
                   </Text>
-                  <VerificationStatusDot verified={isVerifiedRequest} />
+                  <VerificationStatusDot verified={isOwnerKycVerified} />
                   {isVerifiedRequest ? (
                     <VerifiedByPlzBadge compact />
                   ) : badge ? (

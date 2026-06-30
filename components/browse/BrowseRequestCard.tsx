@@ -54,6 +54,7 @@ export function BrowseRequestCard({ request, onPress }: BrowseRequestCardProps) 
     evidenceCount,
     ownerUserId,
     canDonate,
+    ownerKycVerified,
   } = request;
 
   const categoryIcon = getCategoryIcon(categoryId);
@@ -62,6 +63,7 @@ export function BrowseRequestCard({ request, onPress }: BrowseRequestCardProps) 
   const isOwner = Boolean(user?.id && ownerUserId && user.id === ownerUserId);
   const showActionButton = isOwner || Boolean(canDonate);
   const isVerifiedRequest = badge === VERIFIED_BY_PLZ_BADGE;
+  const isOwnerKycVerified = Boolean(ownerKycVerified);
 
   return (
     <View style={styles.card}>
@@ -88,7 +90,7 @@ export function BrowseRequestCard({ request, onPress }: BrowseRequestCardProps) 
                 <Text style={styles.name} numberOfLines={1}>
                   {name}
                 </Text>
-                <VerificationStatusDot verified={isVerifiedRequest} compact />
+                <VerificationStatusDot verified={isOwnerKycVerified} compact />
               </View>
               <View style={styles.metaRow}>
                 {isVerifiedRequest ? (

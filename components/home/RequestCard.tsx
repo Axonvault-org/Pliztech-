@@ -49,6 +49,7 @@ export function RequestCard({ request }: RequestCardProps) {
     ownerUserId,
     canDonate,
     badge,
+    ownerKycVerified,
   } = request;
 
   const href = { pathname: '/(tabs)/request/[id]' as const, params: { id } };
@@ -56,6 +57,7 @@ export function RequestCard({ request }: RequestCardProps) {
   const isOwner = Boolean(user?.id && ownerUserId && user.id === ownerUserId);
   const showActionButton = isOwner || Boolean(canDonate);
   const isVerifiedRequest = badge === VERIFIED_BY_PLZ_BADGE;
+  const isOwnerKycVerified = Boolean(ownerKycVerified);
 
   return (
     <View style={styles.cardWrapper}>
@@ -81,7 +83,7 @@ export function RequestCard({ request }: RequestCardProps) {
                 <Text style={styles.name} numberOfLines={1}>
                   {name}
                 </Text>
-                <VerificationStatusDot verified={isVerifiedRequest} compact />
+                <VerificationStatusDot verified={isOwnerKycVerified} compact />
               </View>
               <View style={styles.metaRow}>
                 {isVerifiedRequest ? (

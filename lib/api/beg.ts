@@ -313,6 +313,8 @@ export type BegFeedItem = {
   ownerAvatarUrl?: string;
   /** Legacy/alternate API key */
   owner_avatar_url?: string;
+  /** Owner completed KYC; shown even when the request is anonymous. */
+  ownerKycVerified?: boolean;
   /** Legacy — newer begs may omit title */
   title?: string;
   description: string | null;
@@ -627,6 +629,7 @@ export function feedBegToBrowseRequest(beg: BegFeedItem): BrowseRequest {
     ownerUserId: beg.userId,
     canDonate: begAcceptsDonations(beg),
     badge: verifiedBadgeForBeg(beg.approved),
+    ownerKycVerified: Boolean(beg.ownerKycVerified),
   };
 }
 
@@ -677,6 +680,7 @@ export function feedBegToTrendingRequest(beg: BegFeedItem): TrendingRequest {
     ownerUserId: beg.userId,
     canDonate: begAcceptsDonations(beg),
     badge: verifiedBadgeForBeg(beg.approved),
+    ownerKycVerified: Boolean(beg.ownerKycVerified),
   };
 }
 
@@ -812,6 +816,7 @@ export function begFeedItemToRequestDetail(beg: BegFeedItem): RequestDetail {
     begStatus: beg.status,
     isWithdrawn: Boolean(beg.isWithdrawn),
     badge: verifiedBadgeForBeg(beg.approved),
+    ownerKycVerified: Boolean(beg.ownerKycVerified),
   };
 }
 

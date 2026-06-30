@@ -10,6 +10,8 @@ export type TrendingRequest = {
   expiresInLabel?: string;
   /** e.g. "Verified Request" when admin-approved */
   badge?: string;
+  /** Owner completed KYC (blue dot); false = yellow dot. */
+  ownerKycVerified?: boolean;
   text: string;
   raised: number;
   goal: number;
@@ -43,6 +45,8 @@ export type BrowseRequest = {
   categoryId: string;
   categoryLabel: string;
   badge?: string;
+  /** Owner completed KYC (blue dot); false = yellow dot. */
+  ownerKycVerified?: boolean;
   text: string;
   raised: number;
   goal: number;

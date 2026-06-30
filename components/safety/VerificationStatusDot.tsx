@@ -7,7 +7,7 @@ type VerificationStatusDotProps = {
 };
 
 /**
- * Blue ring dot = admin-verified request. Yellow dot = not yet verified.
+ * Blue ring dot = KYC-verified user. Yellow dot = KYC not verified.
  */
 export function VerificationStatusDot({ verified, compact = false }: VerificationStatusDotProps) {
   const outer = compact ? 12 : 14;
@@ -22,7 +22,7 @@ export function VerificationStatusDot({ verified, compact = false }: Verificatio
           { width: outer, height: outer, borderRadius: outer / 2 },
         ]}
         accessibilityRole="image"
-        accessibilityLabel="Verified request"
+        accessibilityLabel="KYC verified user"
       >
         <View
           style={[
@@ -41,7 +41,7 @@ export function VerificationStatusDot({ verified, compact = false }: Verificatio
         { width: unverifiedSize, height: unverifiedSize, borderRadius: unverifiedSize / 2 },
       ]}
       accessibilityRole="image"
-      accessibilityLabel="Unverified request"
+      accessibilityLabel="KYC not verified"
     />
   );
 }
