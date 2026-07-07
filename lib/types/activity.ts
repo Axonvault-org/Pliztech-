@@ -6,7 +6,9 @@ export type ActivityRequestStatus =
   | 'pending'
   | 'expired'
   | 'withdrawn'
-  | 'cancelled';
+  | 'cancelled'
+  | 'rejected'
+  | 'flagged';
 
 /** UI row for Activity → Requests (API-mapped). */
 export type ActivityRequest = {

@@ -19,7 +19,10 @@ import type { RecentContribution } from '@/lib/types/home';
 export function useTrendingBegsQuery(limit = 5) {
   return useQuery({
     queryKey: queryKeys.trendingBegs(limit),
-    queryFn: () => getTrendingBegs(limit),
+    queryFn: async () => {
+      const token = await getAccessToken();
+      return getTrendingBegs(limit, token);
+    },
     staleTime: STALE_TIMES.begsFeed,
   });
 }

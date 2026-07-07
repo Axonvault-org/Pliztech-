@@ -6,6 +6,7 @@ import { AppHeaderTitleRow } from '@/components/layout/AppHeaderTitleRow';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
+import { useInvalidateAppQueries } from '@/hooks/queries/useInvalidateAppQueries';
 import { getBlockedUsers, unblockUser, type BlockedUserRow } from '@/lib/api/blocks';
 import { formatPlizApiErrorForUser } from '@/lib/api/types';
 import { withUnauthorizedRecovery } from '@/lib/auth/session-expired';
@@ -20,6 +21,7 @@ function displayBlockedName(row: BlockedUserRow): string {
 
 export default function BlockedUsersScreen() {
   const { signOut } = useCurrentUser();
+  const invalidateAppQueries = useInvalidateAppQueries();
   const [rows, setRows] = useState<BlockedUserRow[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -50,6 +52,7 @@ export default function BlockedUsersScreen() {
             try {
               await withUnauthorizedRecovery(signOut, (token) => unblockUser(token, row.id));
               setRows((prev) => prev.filter((item) => item.id !== row.id));
+              await invalidateAppQueries('all');
             } catch (e) {
               Alert.alert('Could not unblock', formatPlizApiErrorForUser(e));
             }

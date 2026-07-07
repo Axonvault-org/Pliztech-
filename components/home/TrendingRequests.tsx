@@ -15,6 +15,7 @@ export interface TrendingRequestsProps {
   errorMessage?: string | null;
   onRetry?: () => void;
   onSeeAll: () => void;
+  onRequestMenuPress?: (request: TrendingRequest) => void;
 }
 
 export function TrendingRequests({
@@ -23,6 +24,7 @@ export function TrendingRequests({
   errorMessage = null,
   onRetry,
   onSeeAll,
+  onRequestMenuPress,
 }: TrendingRequestsProps) {
   const showEmpty = !loading && !errorMessage && requests.length === 0;
 
@@ -66,7 +68,15 @@ export function TrendingRequests({
 
       <View style={styles.listContent}>
         {requests.map((item) => (
-          <RequestCard key={item.id} request={item} />
+          <RequestCard
+            key={item.id}
+            request={item}
+            onMenuPress={
+              onRequestMenuPress && item.ownerUserId
+                ? () => onRequestMenuPress(item)
+                : undefined
+            }
+          />
         ))}
       </View>
     </View>

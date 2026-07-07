@@ -1,21 +1,33 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
+import { LegalDocumentLink } from '@/components/compliance/LegalDocumentLink';
 import { AppHeaderTitleRow } from '@/components/layout/AppHeaderTitleRow';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
-import { PRIVACY_SECTIONS, TERMS_SECTIONS, type LegalSection } from '@/lib/content/legal';
+import {
+  COMMUNITY_GUIDELINES_SECTIONS,
+  PRIVACY_SECTIONS,
+  TERMS_SECTIONS,
+  type LegalSection,
+} from '@/lib/content/legal';
 
-type LegalTab = 'terms' | 'privacy';
+type LegalTab = 'terms' | 'privacy' | 'guidelines';
 
 const TABS: { value: LegalTab; label: string }[] = [
   { value: 'terms', label: 'Terms' },
   { value: 'privacy', label: 'Privacy' },
+  { value: 'guidelines', label: 'Guidelines' },
 ];
 
 export default function LegalScreen() {
   const [activeTab, setActiveTab] = useState<LegalTab>('terms');
-  const sections = activeTab === 'terms' ? TERMS_SECTIONS : PRIVACY_SECTIONS;
+  const sections =
+    activeTab === 'terms'
+      ? TERMS_SECTIONS
+      : activeTab === 'privacy'
+        ? PRIVACY_SECTIONS
+        : COMMUNITY_GUIDELINES_SECTIONS;
 
   return (
     <Screen backgroundColor="#F9FAFB" scrollable>
@@ -40,11 +52,19 @@ export default function LegalScreen() {
 
         <View style={styles.card}>
           <Text style={styles.heading}>
-            {activeTab === 'terms' ? 'Plz Terms & Conditions' : 'Privacy Policy'}
+            {activeTab === 'terms'
+              ? 'Plz Terms & Conditions'
+              : activeTab === 'privacy'
+                ? 'Privacy Policy'
+                : 'Community Guidelines'}
           </Text>
           {sections.map((section) => (
             <LegalSectionBlock key={section.title} section={section} />
           ))}
+          <View style={styles.webLinks}>
+            <Text style={styles.webLinksLabel}>View on the web:</Text>
+            <LegalDocumentLink kind={activeTab === 'guidelines' ? 'guidelines' : activeTab} />
+          </View>
         </View>
       </View>
     </Screen>
@@ -88,7 +108,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   segmentText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
     color: '#6B7280',
   },
@@ -132,5 +152,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6B7280',
     lineHeight: 22,
+  },
+  webLinks: {
+    marginTop: 8,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#E5E7EB',
+    gap: 6,
+  },
+  webLinksLabel: {
+    fontSize: 13,
+    color: '#6B7280',
   },
 });

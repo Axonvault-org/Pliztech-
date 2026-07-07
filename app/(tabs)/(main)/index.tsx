@@ -1,11 +1,15 @@
 import { router } from 'expo-router';
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 
 import { HomeHeader } from '@/components/home/HomeHeader';
 import { ImpactCard } from '@/components/home/ImpactCard';
 import { QuickActions } from '@/components/home/QuickActions';
 import { RecentContributions } from '@/components/home/RecentContributions';
 import { TrendingRequests } from '@/components/home/TrendingRequests';
+import {
+  ReportContentSheet,
+  type ReportTarget,
+} from '@/components/safety/ReportContentSheet';
 import {
   avatarColorFromSeed,
   displayFirstName,
@@ -24,6 +28,9 @@ import {
   useRecentContributionsQuery,
   useTrendingBegsQuery,
 } from '@/hooks/queries/useHomeQueries';
+import { useRequestSafetyActions } from '@/hooks/useRequestSafetyActions';
+import { reportBeg } from '@/lib/api/reports';
+import { withUnauthorizedRecovery } from '@/lib/auth/session-expired';
 import { ScrollView, RefreshControl, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -32,6 +39,9 @@ const RECENT_CONTRIBUTIONS_HOME_LIMIT = 5;
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { user, isLoading, signOut, refreshUser } = useCurrentUser();
+  const { showRequestSafetyMenu } = useRequestSafetyActions();
+  const [reportVisible, setReportVisible] = useState(false);
+  const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
   const { unreadCount, refreshUnreadCount } = useUnreadNotificationCount();
   const { refreshUnreadSupportCount } = useUnreadSupportMessageCount();
 
@@ -130,6 +140,21 @@ export default function HomeScreen() {
     router.push('/(tabs)/notifications');
   };
 
+  const onRequestMenuPress = useCallback(
+    (request: TrendingRequest) => {
+      if (!request.ownerUserId) return;
+      showRequestSafetyMenu({
+        begId: request.id,
+        ownerUserId: request.ownerUserId,
+        onFlag: () => {
+          setReportTarget({ type: 'beg', id: request.id, label: request.text });
+          setReportVisible(true);
+        },
+      });
+    },
+    [showRequestSafetyMenu]
+  );
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]} collapsable={false}>
       <ScrollView
@@ -168,6 +193,7 @@ export default function HomeScreen() {
           errorMessage={trendingError}
           onRetry={() => void trendingQuery.refetch()}
           onSeeAll={onSeeAll}
+          onRequestMenuPress={user ? onRequestMenuPress : undefined}
         />
         <RecentContributions
           contributions={recentContributions}
@@ -177,6 +203,20 @@ export default function HomeScreen() {
           onCommunityStories={onCommunityStories}
         />
       </ScrollView>
+      <ReportContentSheet
+        visible={reportVisible}
+        target={reportTarget}
+        onClose={() => {
+          setReportVisible(false);
+          setReportTarget(null);
+        }}
+        onSubmit={async (body) => {
+          if (!reportTarget || reportTarget.type !== 'beg') return;
+          await withUnauthorizedRecovery(signOut, (token) =>
+            reportBeg(token, reportTarget.id, body)
+          );
+        }}
+      />
     </View>
   );
 }

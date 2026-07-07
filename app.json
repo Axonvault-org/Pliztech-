@@ -55,8 +55,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Plz needs access to your photos so you can choose a profile picture and personalize your account.",
-          "cameraPermission": "Plz needs camera access so you can take a profile photo or verify your identity.",
+          "photosPermission": "Plz needs access to your photos for profile pictures, identity verification (KYC), and optional request evidence.",
+          "cameraPermission": "Plz needs camera access for profile photos, identity verification (KYC), and optional request evidence.",
           "microphonePermission": false
         }
       ]

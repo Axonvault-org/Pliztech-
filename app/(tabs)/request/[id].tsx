@@ -13,6 +13,12 @@ import {
     View,
 } from 'react-native';
 
+import { DonationTermsConsent } from '@/components/compliance/DonationTermsConsent';
+import {
+  ModerationStatusBadge,
+  moderationOwnerMessage,
+  moderationStatusFromBeg,
+} from '@/components/compliance/ModerationStatusBadge';
 import { DonationThankYouModal } from '@/components/donation/DonationThankYouModal';
 import { BegEvidenceViewerModal } from '@/components/evidence/BegEvidenceViewerModal';
 import { CTAButton } from '@/components/CTAButton';
@@ -32,9 +38,7 @@ import { REQUEST_CATEGORIES } from '@/constants/categories';
 import {
     begFeedItemToRequestDetail,
     getBegById,
-    hideBeg,
 } from '@/lib/api/beg';
-import { blockUser } from '@/lib/api/blocks';
 import { initializeDonation, getBegDonations, type BegDonationApiItem } from '@/lib/api/donations';
 import {
   deleteBegEvidence,
@@ -54,6 +58,7 @@ import { useCurrentUser } from '@/contexts/CurrentUserContext';
 import * as ImagePicker from 'expo-image-picker';
 import { openPaymentCheckout } from '@/lib/utils/open-payment-checkout';
 import { withUnauthorizedRecovery } from '@/lib/auth/session-expired';
+import { useRequestSafetyActions } from '@/hooks/useRequestSafetyActions';
 import { getAccessToken } from '@/lib/auth/access-token';
 import { digitsOnly, formatAmountInput } from '@/lib/money/input-format';
 import {
@@ -126,6 +131,7 @@ const REQUEST_DETAIL_MAX_WIDTH = 960;
 
 export default function RequestDetailScreen() {
   const { user, signOut } = useCurrentUser();
+  const { showRequestSafetyMenu, defaultOnBlocked } = useRequestSafetyActions();
   const anonymousModeEnabled = user?.profile?.isAnonymous ?? false;
   const params = useLocalSearchParams<{ id: string; donate?: string }>();
   const id = typeof params.id === 'string' ? params.id : params.id?.[0];
@@ -299,7 +305,7 @@ export default function RequestDetailScreen() {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: false,
       quality: 0.85,
     });
@@ -553,41 +559,21 @@ export default function RequestDetailScreen() {
 
   const onSafetyMenu = useCallback(() => {
     if (!id || !ownerUserIdForSafety || isOwnerForSafety) return;
-    Alert.alert('Request options', undefined, [
-      {
-        text: 'Hide from feed',
-        onPress: () =>
-          void (async () => {
-            try {
-              await withUnauthorizedRecovery(signOut, (token) => hideBeg(token, id));
-              Alert.alert('Hidden', 'This request will no longer appear in your feed.', [
-                { text: 'OK', onPress: () => router.back() },
-              ]);
-            } catch (e) {
-              Alert.alert('Could not hide request', formatPlizApiErrorForUser(e));
-            }
-          })(),
-      },
-      {
-        text: 'Block user',
-        style: 'destructive',
-        onPress: () =>
-          void (async () => {
-            try {
-              await withUnauthorizedRecovery(signOut, (token) =>
-                blockUser(token, ownerUserIdForSafety)
-              );
-              Alert.alert('User blocked', 'You will no longer see content from this user.', [
-                { text: 'OK', onPress: () => router.back() },
-              ]);
-            } catch (e) {
-              Alert.alert('Could not block user', formatPlizApiErrorForUser(e));
-            }
-          })(),
-      },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
-  }, [id, ownerUserIdForSafety, isOwnerForSafety, signOut]);
+    showRequestSafetyMenu({
+      begId: id,
+      ownerUserId: ownerUserIdForSafety,
+      onFlag: openReportBeg,
+      onHidden: defaultOnBlocked,
+      onBlocked: defaultOnBlocked,
+    });
+  }, [
+    id,
+    ownerUserIdForSafety,
+    isOwnerForSafety,
+    showRequestSafetyMenu,
+    openReportBeg,
+    defaultOnBlocked,
+  ]);
 
   if (!id) {
     return (
@@ -685,6 +671,11 @@ export default function RequestDetailScreen() {
   const isAwaitingApproval = isOwner && approved === false;
   const isVerifiedRequest = Boolean(approved && !isAwaitingApproval);
   const isOwnerKycVerified = Boolean(ownerKycVerified);
+  const ownerModerationStatus = isOwner
+    ? moderationStatusFromBeg({ approved, begStatus, isOwner: true })
+    : null;
+  const ownerModerationMessage =
+    ownerModerationStatus != null ? moderationOwnerMessage(ownerModerationStatus) : null;
   const ownerWithdrawalPending =
     ownerWithdrawal != null &&
     (ownerWithdrawal.status === 'pending' || ownerWithdrawal.status === 'processing');
@@ -804,7 +795,6 @@ export default function RequestDetailScreen() {
       >
         <View ref={pageContentRef} style={styles.pageContent}>
           <RequestDetailHeader
-            onReportPress={openReportBeg}
             onMenuPress={!isOwner && ownerUserId ? onSafetyMenu : undefined}
           />
 
@@ -875,15 +865,43 @@ export default function RequestDetailScreen() {
             )}
           </View>
 
-          {isAwaitingApproval ? (
-            <View style={styles.pendingApprovalBanner}>
-              <Ionicons name="hourglass-outline" size={22} color="#B45309" />
+          {ownerModerationStatus && ownerModerationMessage ? (
+            <View
+              style={[
+                styles.pendingApprovalBanner,
+                ownerModerationStatus === 'rejected' && styles.moderationBannerRejected,
+                ownerModerationStatus === 'flagged' && styles.moderationBannerFlagged,
+              ]}
+            >
+              <Ionicons
+                name={
+                  ownerModerationStatus === 'pending'
+                    ? 'hourglass-outline'
+                    : ownerModerationStatus === 'flagged'
+                      ? 'alert-circle-outline'
+                      : 'close-circle-outline'
+                }
+                size={22}
+                color={
+                  ownerModerationStatus === 'rejected'
+                    ? '#DC2626'
+                    : ownerModerationStatus === 'flagged'
+                      ? '#EA580C'
+                      : '#B45309'
+                }
+              />
               <View style={styles.pendingApprovalTextWrap}>
-                <Text style={styles.pendingApprovalTitle}>Pending approval</Text>
-                <Text style={styles.pendingApprovalSubtitle}>
-                  Your request isn&apos;t visible to the community yet. We&apos;ll notify you when it&apos;s
-                  approved.
-                </Text>
+                <View style={styles.moderationTitleRow}>
+                  <Text style={styles.pendingApprovalTitle}>
+                    {ownerModerationStatus === 'pending'
+                      ? 'Pending approval'
+                      : ownerModerationStatus === 'rejected'
+                        ? 'Request rejected'
+                        : 'Under review'}
+                  </Text>
+                  <ModerationStatusBadge status={ownerModerationStatus} compact />
+                </View>
+                <Text style={styles.pendingApprovalSubtitle}>{ownerModerationMessage}</Text>
               </View>
             </View>
           ) : null}
@@ -1250,6 +1268,8 @@ export default function RequestDetailScreen() {
               {donationProgressMessage ? (
                 <Text style={styles.paymentProgressText}>{donationProgressMessage}</Text>
               ) : null}
+
+              <DonationTermsConsent />
 
               <Text style={styles.ctaSubtext}>
                 Only {formatNaira(amountNeeded)} needed to complete this request
@@ -1762,6 +1782,21 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     borderWidth: 1,
     borderColor: '#FCD34D',
+  },
+  moderationBannerRejected: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+  },
+  moderationBannerFlagged: {
+    backgroundColor: '#FFF7ED',
+    borderColor: '#FDBA74',
+  },
+  moderationTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+    marginBottom: 4,
   },
   pendingApprovalTextWrap: {
     flex: 1,

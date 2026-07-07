@@ -20,11 +20,17 @@ import { ConfirmRequestModal } from '@/components/create/ConfirmRequestModal';
 import { RequestLiveModal } from '@/components/create/RequestLiveModal';
 import { RequestLimitAlert } from '@/components/create/RequestLimitAlert';
 import { CTAButton } from '@/components/CTAButton';
+import { LegalDocumentLink } from '@/components/compliance/LegalDocumentLink';
 import { FormTextArea } from '@/components/FormTextArea';
 import { AppHeaderLogoRow } from '@/components/layout/AppHeaderLogoRow';
 import { Screen } from '@/components/Screen';
 import { categoryEmojiForId, REQUEST_CATEGORIES } from '@/constants/categories';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
+import {
+  BEG_MAX_DESCRIPTION_WORDS,
+  clampBegDescriptionWhileTyping,
+  countDescriptionWords,
+} from '@/lib/beg/description-limits';
 import {
   getBegAmountTierError,
   parseAmountInput,
@@ -39,6 +45,7 @@ import {
 } from '@/lib/api/beg';
 import { uploadBegEvidence, type EvidenceUploadFile } from '@/lib/api/evidence';
 import { formatPlizApiErrorForUser } from '@/lib/api/types';
+import { ensurePermissionRationale } from '@/lib/compliance/media-permission';
 import {
   getAccessTokenOrTryRefresh,
   withUnauthorizedRecovery,
@@ -49,16 +56,14 @@ import {
   VAT_ON_PLATFORM_FEE_PERCENT,
 } from '@/lib/withdrawal-fees';
 
-const MAX_DESC_WORDS = 40;
-
 const createRequestSchema = z.object({
   categoryId: z.string().min(1, 'Please select a category'),
   description: z
     .string()
     .min(1, 'Please describe your need')
     .refine(
-      (val) => val.trim().split(/\s+/).filter(Boolean).length <= MAX_DESC_WORDS,
-      `Maximum ${MAX_DESC_WORDS} words`
+      (val) => countDescriptionWords(val) <= BEG_MAX_DESCRIPTION_WORDS,
+      `Maximum ${BEG_MAX_DESCRIPTION_WORDS} words`
     ),
   amount: z
     .string()
@@ -117,10 +122,6 @@ function buildTrustLimitMessage(progress: TrustProgress | null): string {
   return 'Build trust by verifying your identity and helping others.';
 }
 
-function countWords(text: string): number {
-  return text.trim().split(/\s+/).filter(Boolean).length;
-}
-
 export default function CreateScreen() {
   const { user, signOut } = useCurrentUser();
   const anonymousModeEnabled = user?.profile?.isAnonymous ?? false;
@@ -158,7 +159,7 @@ export default function CreateScreen() {
 
   const description = watch('description');
   const amountInput = watch('amount');
-  const wordCount = countWords(description ?? '');
+  const wordCount = countDescriptionWords(description ?? '');
 
   const parsedAmount = useMemo(() => parseAmountInput(amountInput ?? ''), [amountInput]);
   const amountTierError = useMemo(() => {
@@ -193,6 +194,9 @@ export default function CreateScreen() {
   }, [anonymousModeEnabled, setValue]);
 
   const pickEvidencePhoto = async () => {
+    const proceed = await ensurePermissionRationale('photos');
+    if (!proceed) return;
+
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
       Alert.alert('Permission needed', 'Allow photo access to attach evidence.');
@@ -200,7 +204,7 @@ export default function CreateScreen() {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: false,
       quality: 0.85,
     });
@@ -423,14 +427,13 @@ export default function CreateScreen() {
             render={({ field: { onChange, onBlur, value } }) => (
               <FormTextArea
                 label="Briefly describe your need"
-                placeholder="Be specific but brief (max 40 words)."
+                placeholder={`Be specific but brief (max ${BEG_MAX_DESCRIPTION_WORDS} words).`}
                 value={value}
-                onChangeText={onChange}
+                onChangeText={(text) => onChange(clampBegDescriptionWhileTyping(text))}
                 onBlur={onBlur}
-                wordCount={{ current: wordCount, max: MAX_DESC_WORDS }}
+                wordCount={{ current: wordCount, max: BEG_MAX_DESCRIPTION_WORDS }}
                 error={errors.description?.message}
-                hint="No title on the feed — only this description. No editing after submission."
-                maxLength={300}
+                hint="No title on the feed — only this description. Up to 40 words or 300 characters. No editing after submission."
               />
             )}
           />
@@ -562,9 +565,12 @@ export default function CreateScreen() {
             disabled={continueDisabled}
           />
 
-          <Text style={styles.disclaimer}>
-            By submitting, you agree that this request is truthful and you accept our community guidelines
-          </Text>
+          <View style={styles.disclaimerRow}>
+            <Text style={styles.disclaimer}>
+              By submitting, you agree that this request is truthful and you accept our{' '}
+            </Text>
+            <LegalDocumentLink kind="terms" label="Terms and Conditions" style={styles.disclaimerLink} />
+          </View>
       </View>
     </Screen>
   );
@@ -738,11 +744,20 @@ const styles = StyleSheet.create({
     color: COLORS.body,
     marginTop: 2,
   },
+  disclaimerRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 16,
+  },
   disclaimer: {
     fontSize: 12,
     color: COLORS.body,
     textAlign: 'center',
-    marginTop: 16,
     lineHeight: 18,
+  },
+  disclaimerLink: {
+    fontSize: 12,
   },
 });

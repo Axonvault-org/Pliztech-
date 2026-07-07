@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
 import { router, type Href } from 'expo-router';
-import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 import { HeaderNotificationButton } from '@/components/home/HeaderNotificationButton';
 import { useUnreadNotificationCount } from '@/hooks/useUnreadNotificationCount';
@@ -11,9 +11,7 @@ const LOGO = require('@/assets/images/pliz-logo.png');
 const NOTIFICATIONS_HREF = '/(tabs)/notifications' as Href;
 
 export type RequestDetailHeaderProps = {
-  /** Report / flag this request (Figma: top-right flag). */
-  onReportPress?: () => void;
-  /** Optional overflow menu (hide, block, etc.). */
+  /** Opens hide / block / flag options. */
   onMenuPress?: () => void;
 };
 
@@ -25,16 +23,8 @@ function goBackOrHome() {
   }
 }
 
-export function RequestDetailHeader({ onReportPress, onMenuPress }: RequestDetailHeaderProps) {
+export function RequestDetailHeader({ onMenuPress }: RequestDetailHeaderProps) {
   const { unreadCount } = useUnreadNotificationCount();
-
-  const handleReport = () => {
-    if (onReportPress) {
-      onReportPress();
-      return;
-    }
-    Alert.alert('Report request', 'Thanks for looking out for the community. Reporting will be available soon.');
-  };
 
   return (
     <View style={styles.header}>
@@ -61,17 +51,9 @@ export function RequestDetailHeader({ onReportPress, onMenuPress }: RequestDetai
             accessibilityLabel="More options"
             accessibilityRole="button"
           >
-            <Ionicons name="ellipsis-horizontal" size={20} color="#1F2937" />
+            <Ionicons name="ellipsis-vertical" size={20} color="#1F2937" />
           </Pressable>
         ) : null}
-        <Pressable
-          style={styles.iconCircle}
-          onPress={handleReport}
-          accessibilityLabel="Report this request"
-          accessibilityRole="button"
-        >
-          <Ionicons name="flag-outline" size={20} color="#1F2937" />
-        </Pressable>
       </View>
     </View>
   );

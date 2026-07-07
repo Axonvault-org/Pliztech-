@@ -110,13 +110,6 @@ export default function AccountSettingsScreen() {
     );
   };
 
-  const handleExportData = () => {
-    Alert.alert(
-      'Export my data',
-      'A full data export is processed on the server. Contact support from your profile email with the subject “Data export” and we will send your package when the export API is enabled for your account.'
-    );
-  };
-
   const handleDeleteAccount = () => {
     router.push('/(tabs)/delete-account' as import('expo-router').Href);
   };
@@ -196,14 +189,6 @@ export default function AccountSettingsScreen() {
       </SettingsSection>
 
       <SettingsSection title="Data & Privacy">
-        <SettingsRow
-          icon="download-outline"
-          title="Export My Data"
-          subtitle="Download a copy of your data"
-          badge="Coming soon"
-          onPress={handleExportData}
-          isLast={false}
-        />
         <SettingsRow
           icon="trash-outline"
           title="Delete Account"

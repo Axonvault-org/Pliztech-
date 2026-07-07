@@ -6,6 +6,7 @@ import { Text } from '@/components/Text';
 import { ProgressBar } from '@/components/ProgressBar';
 import { BegEvidenceButton } from '@/components/evidence/BegEvidenceButton';
 import { BegCardDonateButton } from '@/components/request/BegCardDonateButton';
+import { RequestCardOverflowButton } from '@/components/request/RequestCardOverflowButton';
 import { RequesterAvatar } from '@/components/request/RequesterAvatar';
 import { VerifiedByPlzBadge } from '@/components/safety/VerifiedByPlzBadge';
 import { VerificationStatusDot } from '@/components/safety/VerificationStatusDot';
@@ -25,13 +26,15 @@ function formatNaira(amount: number) {
 
 export interface RequestCardProps {
   request: TrendingRequest;
+  /** Opens hide / block / flag options for this card. */
+  onMenuPress?: () => void;
 }
 
 /**
  * Avatar sits outside the navigation Link so tapping it opens photo preview only.
  * Card body uses Link asChild + TouchableOpacity for reliable iOS navigation.
  */
-export function RequestCard({ request }: RequestCardProps) {
+export function RequestCard({ request, onMenuPress }: RequestCardProps) {
   const { user } = useCurrentUser();
   const {
     id,
@@ -58,6 +61,7 @@ export function RequestCard({ request }: RequestCardProps) {
   const showActionButton = isOwner || Boolean(canDonate);
   const isVerifiedRequest = badge === VERIFIED_BY_PLZ_BADGE;
   const isOwnerKycVerified = Boolean(ownerKycVerified);
+  const showOverflowMenu = Boolean(onMenuPress && !isOwner && ownerUserId);
 
   return (
     <View style={styles.cardWrapper}>
@@ -98,6 +102,7 @@ export function RequestCard({ request }: RequestCardProps) {
             </View>
           </TouchableOpacity>
         </Link>
+        {showOverflowMenu ? <RequestCardOverflowButton onPress={onMenuPress!} /> : null}
       </View>
 
       <Link href={href} asChild push>

@@ -1,8 +1,13 @@
 import { apiUrl } from '@/constants/api';
 import { REQUEST_CATEGORIES } from '@/constants/categories';
-import { begAcceptsDonations } from '@/lib/beg/can-donate';
+import {
+  begAcceptsDonations,
+  isBegPastOrClosedForDonorNav,
+  mapBegStatusToActivityStatus,
+} from '@/lib/beg/beg-status';
+import { clampBegDescription } from '@/lib/beg/description-limits';
 import { avatarColorFromSeed } from '@/contexts/CurrentUserContext';
-import type { ActivityRequest, ActivityRequestStatus } from '@/lib/types/activity';
+import type { ActivityRequest } from '@/lib/types/activity';
 import type { BrowseRequest, TrendingRequest } from '@/lib/types/home';
 import type { RequestDetail } from '@/lib/types/requests';
 import { isWebAuthEnvironment } from '@/lib/auth/web-auth';
@@ -12,6 +17,9 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { apiFailureFromResponseJson, PlizApiError } from './types';
 
 export const VERIFIED_BY_PLZ_BADGE = 'Verified Request';
+
+/** Re-exported for callers that import donation helpers from the beg API module. */
+export { isBegPastOrClosedForDonorNav } from '@/lib/beg/beg-status';
 
 export function verifiedBadgeForBeg(approved: boolean | undefined): string | undefined {
   return approved === true ? VERIFIED_BY_PLZ_BADGE : undefined;
@@ -108,10 +116,7 @@ export function uiCategoryToApiCategory(uiCategoryId: string): BegApiCategory {
 
 /** Backend: max 40 words, 300 characters (BegService). */
 export function clampBegDescriptionForApi(description: string): string {
-  const trimmed = description.trim().replace(/\s+/g, ' ');
-  const words = trimmed.split(' ').filter(Boolean).slice(0, 40);
-  const joined = words.join(' ');
-  return joined.length > 300 ? joined.slice(0, 300) : joined;
+  return clampBegDescription(description);
 }
 
 /**
@@ -370,6 +375,7 @@ export async function getBegsFeed(options?: {
   page?: number;
   limit?: number;
   category?: BegApiCategory;
+  accessToken?: string | null;
 }): Promise<GetBegsFeedResult> {
   const page = options?.page ?? 1;
   const limit = options?.limit ?? 50;
@@ -380,9 +386,14 @@ export async function getBegsFeed(options?: {
     params.set('category', options.category);
   }
 
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (options?.accessToken?.trim()) {
+    headers.Authorization = `Bearer ${options.accessToken.trim()}`;
+  }
+
   const res = await fetch(`${apiUrl('/api/begs')}?${params.toString()}`, {
     method: 'GET',
-    headers: { Accept: 'application/json' },
+    headers,
   });
 
   let json: unknown;
@@ -470,35 +481,6 @@ export async function getMyBegs(
       pages: p?.pages ?? 1,
     },
   };
-}
-
-function mapBegStatusToActivityStatus(beg: BegFeedItem): ActivityRequestStatus {
-  const s = beg.status;
-  if (s === 'funded') return 'funded';
-  if (s === 'withdrawn' || (beg.isWithdrawn && s === 'expired')) return 'withdrawn';
-  if (s === 'cancelled') return 'cancelled';
-  if (s === 'expired') return 'expired';
-  if (s === 'rejected') return 'cancelled';
-  if (!beg.approved) return 'pending';
-
-  if (s === 'flagged') return 'active';
-
-  const goal = Math.round(Number(beg.amountRequested) || 0);
-  const raised = Math.round(Number(beg.amountRaised) || 0);
-  if (goal > 0 && raised >= goal) return 'funded';
-  if (beg.timeRemaining === 'Expired') return 'expired';
-
-  return 'active';
-}
-
-/**
- * After a donation, use Activity “past request” overlay instead of the live request screen
- * when the beg is no longer active (fully funded, expired, cancelled, etc.).
- */
-export function isBegPastOrClosedForDonorNav(beg: BegFeedItem): boolean {
-  if (beg.isWithdrawn) return true;
-  const st = mapBegStatusToActivityStatus(beg);
-  return st !== 'active' && st !== 'pending';
 }
 
 function categoryIconForBeg(beg: BegFeedItem): keyof typeof Ionicons.glyphMap {
@@ -692,11 +674,13 @@ const DEFAULT_TRENDING_COUNT = 5;
  * funding % (then amount raised, then recency).
  */
 export async function getTrendingBegs(
-  displayLimit = DEFAULT_TRENDING_COUNT
+  displayLimit = DEFAULT_TRENDING_COUNT,
+  accessToken?: string | null
 ): Promise<TrendingRequest[]> {
   const { begs } = await getBegsFeed({
     page: 1,
     limit: TRENDING_SOURCE_LIMIT,
+    accessToken,
   });
   const mapped = begs.map(feedBegToTrendingRequest);
   mapped.sort((a, b) => {

@@ -7,6 +7,7 @@ import { Text } from '@/components/Text';
 import { ProgressBar } from '@/components/ProgressBar';
 import { BegEvidenceButton } from '@/components/evidence/BegEvidenceButton';
 import { BegCardDonateButton } from '@/components/request/BegCardDonateButton';
+import { RequestCardOverflowButton } from '@/components/request/RequestCardOverflowButton';
 import { RequesterAvatar } from '@/components/request/RequesterAvatar';
 import { VerifiedByPlzBadge } from '@/components/safety/VerifiedByPlzBadge';
 import { VerificationStatusDot } from '@/components/safety/VerificationStatusDot';
@@ -33,9 +34,11 @@ function getCategoryIcon(categoryId: string) {
 export interface BrowseRequestCardProps {
   request: BrowseRequest;
   onPress?: () => void;
+  /** Opens hide / block / flag options for this card. */
+  onMenuPress?: () => void;
 }
 
-export function BrowseRequestCard({ request, onPress }: BrowseRequestCardProps) {
+export function BrowseRequestCard({ request, onPress, onMenuPress }: BrowseRequestCardProps) {
   const { user } = useCurrentUser();
   const {
     id,
@@ -64,6 +67,7 @@ export function BrowseRequestCard({ request, onPress }: BrowseRequestCardProps) 
   const showActionButton = isOwner || Boolean(canDonate);
   const isVerifiedRequest = badge === VERIFIED_BY_PLZ_BADGE;
   const isOwnerKycVerified = Boolean(ownerKycVerified);
+  const showOverflowMenu = Boolean(onMenuPress && !isOwner && ownerUserId);
 
   return (
     <View style={styles.card}>
@@ -112,6 +116,7 @@ export function BrowseRequestCard({ request, onPress }: BrowseRequestCardProps) 
             </View>
           </TouchableOpacity>
         </Link>
+        {showOverflowMenu ? <RequestCardOverflowButton onPress={onMenuPress!} /> : null}
       </View>
 
       <Link href={href} asChild push>
