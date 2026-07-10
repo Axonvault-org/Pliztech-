@@ -4,6 +4,8 @@ import { router, type Href } from 'expo-router';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { HeaderNotificationButton } from '@/components/home/HeaderNotificationButton';
+import type { RequestCardSafetyProps } from '@/components/request/request-card-safety';
+import { RequestCardOverflowMenu } from '@/components/request/RequestCardOverflowMenu';
 import { useUnreadNotificationCount } from '@/hooks/useUnreadNotificationCount';
 
 const LOGO = require('@/assets/images/pliz-logo.png');
@@ -11,8 +13,7 @@ const LOGO = require('@/assets/images/pliz-logo.png');
 const NOTIFICATIONS_HREF = '/(tabs)/notifications' as Href;
 
 export type RequestDetailHeaderProps = {
-  /** Opens hide / block / flag options. */
-  onMenuPress?: () => void;
+  safetyMenu?: RequestCardSafetyProps;
 };
 
 function goBackOrHome() {
@@ -23,7 +24,7 @@ function goBackOrHome() {
   }
 }
 
-export function RequestDetailHeader({ onMenuPress }: RequestDetailHeaderProps) {
+export function RequestDetailHeader({ safetyMenu }: RequestDetailHeaderProps) {
   const { unreadCount } = useUnreadNotificationCount();
 
   return (
@@ -44,15 +45,17 @@ export function RequestDetailHeader({ onMenuPress }: RequestDetailHeaderProps) {
           onPress={() => router.push(NOTIFICATIONS_HREF)}
           unreadCount={unreadCount}
         />
-        {onMenuPress ? (
-          <Pressable
-            style={styles.iconCircle}
-            onPress={onMenuPress}
-            accessibilityLabel="More options"
-            accessibilityRole="button"
-          >
-            <Ionicons name="ellipsis-vertical" size={20} color="#1F2937" />
-          </Pressable>
+        {safetyMenu ? (
+          <RequestCardOverflowMenu
+            variant="header"
+            target={safetyMenu.target}
+            isHidden={safetyMenu.isHidden}
+            isBlocked={safetyMenu.isBlocked}
+            showFlag={safetyMenu.showFlag}
+            onToggleHidden={safetyMenu.onToggleHidden}
+            onToggleBlocked={safetyMenu.onToggleBlocked}
+            onFlag={safetyMenu.onFlag}
+          />
         ) : null}
       </View>
     </View>
@@ -79,14 +82,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'flex-end',
     gap: 6,
-  },
-  iconCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#F3F4F6',
-    alignItems: 'center',
-    justifyContent: 'center',
+    zIndex: 10,
+    position: 'relative',
   },
   logoWrap: {
     position: 'absolute',

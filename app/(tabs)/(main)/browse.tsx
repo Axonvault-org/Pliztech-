@@ -32,11 +32,18 @@ import { STALE_TIMES } from '@/lib/query/stale-times';
 import type { BrowseRequest } from '@/lib/types/home';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
 import { useRequestSafetyActions } from '@/hooks/useRequestSafetyActions';
+import { buildRequestCardSafetyMenu } from '@/components/request/request-card-safety';
 import { reportBeg } from '@/lib/api/reports';
 
 export default function BrowseScreen() {
   const { user, signOut } = useCurrentUser();
-  const { showRequestSafetyMenu } = useRequestSafetyActions();
+  const {
+    hiddenBegIds,
+    blockedUserIds,
+    toggleHidden,
+    toggleBlocked,
+    runFlag,
+  } = useRequestSafetyActions();
   const [search, setSearch] = useState('');
   const [mainFilter, setMainFilter] = useState<MainFilter>('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -123,31 +130,31 @@ export default function BrowseScreen() {
     return list;
   }, [search, mainFilter, categoryFilter, requests]);
 
-  const onRequestMenuPress = useCallback(
+  const safetyMenuForRequest = useCallback(
     (request: BrowseRequest) => {
-      if (!request.ownerUserId) return;
-      showRequestSafetyMenu({
+      if (!user || !request.ownerUserId) return undefined;
+      return buildRequestCardSafetyMenu({
         begId: request.id,
         ownerUserId: request.ownerUserId,
+        hiddenBegIds,
+        blockedUserIds,
+        toggleHidden,
+        toggleBlocked,
+        runFlag,
         onFlag: () => {
           setReportTarget({ type: 'beg', id: request.id, label: request.text });
           setReportVisible(true);
         },
       });
     },
-    [showRequestSafetyMenu]
+    [user, hiddenBegIds, blockedUserIds, toggleHidden, toggleBlocked, runFlag]
   );
 
   const renderItem = useCallback(
     ({ item }: { item: BrowseRequest }) => (
-      <BrowseRequestCard
-        request={item}
-        onMenuPress={
-          user && item.ownerUserId ? () => onRequestMenuPress(item) : undefined
-        }
-      />
+      <BrowseRequestCard request={item} safetyMenu={safetyMenuForRequest(item)} />
     ),
-    [user, onRequestMenuPress]
+    [safetyMenuForRequest]
   );
 
   const ListHeader = useMemo(

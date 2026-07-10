@@ -29,6 +29,7 @@ import {
   useTrendingBegsQuery,
 } from '@/hooks/queries/useHomeQueries';
 import { useRequestSafetyActions } from '@/hooks/useRequestSafetyActions';
+import { buildRequestCardSafetyMenu } from '@/components/request/request-card-safety';
 import { reportBeg } from '@/lib/api/reports';
 import { withUnauthorizedRecovery } from '@/lib/auth/session-expired';
 import { ScrollView, RefreshControl, StyleSheet, View } from 'react-native';
@@ -39,7 +40,13 @@ const RECENT_CONTRIBUTIONS_HOME_LIMIT = 5;
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { user, isLoading, signOut, refreshUser } = useCurrentUser();
-  const { showRequestSafetyMenu } = useRequestSafetyActions();
+  const {
+    hiddenBegIds,
+    blockedUserIds,
+    toggleHidden,
+    toggleBlocked,
+    runFlag,
+  } = useRequestSafetyActions();
   const [reportVisible, setReportVisible] = useState(false);
   const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
   const { unreadCount, refreshUnreadCount } = useUnreadNotificationCount();
@@ -140,19 +147,24 @@ export default function HomeScreen() {
     router.push('/(tabs)/notifications');
   };
 
-  const onRequestMenuPress = useCallback(
+  const safetyMenuForRequest = useCallback(
     (request: TrendingRequest) => {
-      if (!request.ownerUserId) return;
-      showRequestSafetyMenu({
+      if (!user || !request.ownerUserId) return undefined;
+      return buildRequestCardSafetyMenu({
         begId: request.id,
         ownerUserId: request.ownerUserId,
+        hiddenBegIds,
+        blockedUserIds,
+        toggleHidden,
+        toggleBlocked,
+        runFlag,
         onFlag: () => {
           setReportTarget({ type: 'beg', id: request.id, label: request.text });
           setReportVisible(true);
         },
       });
     },
-    [showRequestSafetyMenu]
+    [user, hiddenBegIds, blockedUserIds, toggleHidden, toggleBlocked, runFlag]
   );
 
   return (
@@ -193,7 +205,7 @@ export default function HomeScreen() {
           errorMessage={trendingError}
           onRetry={() => void trendingQuery.refetch()}
           onSeeAll={onSeeAll}
-          onRequestMenuPress={user ? onRequestMenuPress : undefined}
+          safetyMenuForRequest={user ? safetyMenuForRequest : undefined}
         />
         <RecentContributions
           contributions={recentContributions}

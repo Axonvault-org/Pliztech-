@@ -4,6 +4,7 @@ import { Text } from '@/components/Text';
 
 import { RequestCard } from './RequestCard';
 
+import type { RequestCardSafetyProps } from '@/components/request/request-card-safety';
 import type { TrendingRequest } from '@/lib/types/home';
 
 const HEADING = '#1F2937';
@@ -15,7 +16,7 @@ export interface TrendingRequestsProps {
   errorMessage?: string | null;
   onRetry?: () => void;
   onSeeAll: () => void;
-  onRequestMenuPress?: (request: TrendingRequest) => void;
+  safetyMenuForRequest?: (request: TrendingRequest) => RequestCardSafetyProps | undefined;
 }
 
 export function TrendingRequests({
@@ -24,7 +25,7 @@ export function TrendingRequests({
   errorMessage = null,
   onRetry,
   onSeeAll,
-  onRequestMenuPress,
+  safetyMenuForRequest,
 }: TrendingRequestsProps) {
   const showEmpty = !loading && !errorMessage && requests.length === 0;
 
@@ -71,11 +72,7 @@ export function TrendingRequests({
           <RequestCard
             key={item.id}
             request={item}
-            onMenuPress={
-              onRequestMenuPress && item.ownerUserId
-                ? () => onRequestMenuPress(item)
-                : undefined
-            }
+            safetyMenu={safetyMenuForRequest?.(item)}
           />
         ))}
       </View>

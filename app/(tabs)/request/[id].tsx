@@ -59,6 +59,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { openPaymentCheckout } from '@/lib/utils/open-payment-checkout';
 import { withUnauthorizedRecovery } from '@/lib/auth/session-expired';
 import { useRequestSafetyActions } from '@/hooks/useRequestSafetyActions';
+import { buildRequestCardSafetyMenu } from '@/components/request/request-card-safety';
 import { getAccessToken } from '@/lib/auth/access-token';
 import { digitsOnly, formatAmountInput } from '@/lib/money/input-format';
 import {
@@ -131,7 +132,14 @@ const REQUEST_DETAIL_MAX_WIDTH = 960;
 
 export default function RequestDetailScreen() {
   const { user, signOut } = useCurrentUser();
-  const { showRequestSafetyMenu, defaultOnBlocked } = useRequestSafetyActions();
+  const {
+    hiddenBegIds,
+    blockedUserIds,
+    toggleHidden,
+    toggleBlocked,
+    runFlag,
+    defaultOnBlocked,
+  } = useRequestSafetyActions();
   const anonymousModeEnabled = user?.profile?.isAnonymous ?? false;
   const params = useLocalSearchParams<{ id: string; donate?: string }>();
   const id = typeof params.id === 'string' ? params.id : params.id?.[0];
@@ -335,6 +343,35 @@ export default function RequestDetailScreen() {
     setReportTarget({ type: 'beg', id, label: request.text });
     setReportVisible(true);
   }, [id, request]);
+
+  const detailSafetyMenu = useMemo(() => {
+    if (!id || !request?.ownerUserId) return undefined;
+    const isViewerOwner = Boolean(user?.id && user.id === request.ownerUserId);
+    if (isViewerOwner) return undefined;
+    return buildRequestCardSafetyMenu({
+      begId: id,
+      ownerUserId: request.ownerUserId,
+      hiddenBegIds,
+      blockedUserIds,
+      toggleHidden,
+      toggleBlocked,
+      runFlag,
+      onFlag: openReportBeg,
+      onHidden: defaultOnBlocked,
+      onBlocked: defaultOnBlocked,
+    });
+  }, [
+    id,
+    request,
+    user?.id,
+    hiddenBegIds,
+    blockedUserIds,
+    toggleHidden,
+    toggleBlocked,
+    runFlag,
+    openReportBeg,
+    defaultOnBlocked,
+  ]);
 
   const onToggleEvidenceSensitivity = useCallback(
     (item: BegEvidenceItem, next: boolean) => {
@@ -551,29 +588,6 @@ export default function RequestDetailScreen() {
     const cat = REQUEST_CATEGORIES.find((c) => c.id === request.categoryId);
     return (cat?.icon ?? 'briefcase-outline') as keyof typeof Ionicons.glyphMap;
   }, [request]);
-
-  const ownerUserIdForSafety = request?.ownerUserId;
-  const isOwnerForSafety = Boolean(
-    user?.id && ownerUserIdForSafety && user.id === ownerUserIdForSafety
-  );
-
-  const onSafetyMenu = useCallback(() => {
-    if (!id || !ownerUserIdForSafety || isOwnerForSafety) return;
-    showRequestSafetyMenu({
-      begId: id,
-      ownerUserId: ownerUserIdForSafety,
-      onFlag: openReportBeg,
-      onHidden: defaultOnBlocked,
-      onBlocked: defaultOnBlocked,
-    });
-  }, [
-    id,
-    ownerUserIdForSafety,
-    isOwnerForSafety,
-    showRequestSafetyMenu,
-    openReportBeg,
-    defaultOnBlocked,
-  ]);
 
   if (!id) {
     return (
@@ -794,9 +808,7 @@ export default function RequestDetailScreen() {
         nestedScrollEnabled
       >
         <View ref={pageContentRef} style={styles.pageContent}>
-          <RequestDetailHeader
-            onMenuPress={!isOwner && ownerUserId ? onSafetyMenu : undefined}
-          />
+          <RequestDetailHeader safetyMenu={detailSafetyMenu} />
 
           <View style={styles.requesterRow}>
             <RequesterAvatar

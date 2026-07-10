@@ -6,7 +6,7 @@ import {
   mapBegStatusToActivityStatus,
 } from '@/lib/beg/beg-status';
 import { clampBegDescription } from '@/lib/beg/description-limits';
-import { avatarColorFromSeed } from '@/contexts/CurrentUserContext';
+import { avatarColorFromSeed } from '@/lib/user/avatar-color';
 import type { ActivityRequest } from '@/lib/types/activity';
 import type { BrowseRequest, TrendingRequest } from '@/lib/types/home';
 import type { RequestDetail } from '@/lib/types/requests';

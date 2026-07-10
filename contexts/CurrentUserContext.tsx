@@ -22,7 +22,10 @@ import {
 } from '@/lib/auth/session-expired';
 import { queryKeys } from '@/lib/query/query-keys';
 import { STALE_TIMES } from '@/lib/query/stale-times';
+import { avatarColorFromSeed } from '@/lib/user/avatar-color';
 import { clearRegisteredPushTokenOnLogout } from '@/hooks/usePushNotifications';
+
+export { avatarColorFromSeed };
 
 export function displayFirstName(user: MeUser | null): string {
   if (!user) return '';
@@ -128,15 +131,6 @@ export function initialsFromDisplayName(name: string): string {
     return parts[0]!.slice(0, 2).toUpperCase();
   }
   return parts[0]?.[0]?.toUpperCase() ?? '?';
-}
-
-export function avatarColorFromSeed(seed: string): string {
-  const palette = ['#2E8BEA', '#EF4444', '#8B5CF6', '#10B981', '#F59E0B', '#EC4899'];
-  let h = 0;
-  for (let i = 0; i < seed.length; i++) {
-    h = seed.charCodeAt(i) + ((h << 5) - h);
-  }
-  return palette[Math.abs(h) % palette.length]!;
 }
 
 type CurrentUserContextValue = {

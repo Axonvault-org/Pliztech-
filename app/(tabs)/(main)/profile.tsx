@@ -207,7 +207,7 @@ export default function ProfileScreen() {
           <ProfileRow
             icon="document-text-outline"
             title="Terms & Privacy"
-            subtitle="Terms of Service and Privacy Policy"
+            subtitle="Terms and Conditions and Privacy Policy"
             onPress={() => router.push('/(tabs)/legal' as import('expo-router').Href)}
             isLast
           />

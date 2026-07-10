@@ -1,12 +1,13 @@
-import { Link } from 'expo-router';
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Link, router } from 'expo-router';
+import { Pressable, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { Text } from '@/components/Text';
 
 import { ProgressBar } from '@/components/ProgressBar';
 import { BegEvidenceButton } from '@/components/evidence/BegEvidenceButton';
 import { BegCardDonateButton } from '@/components/request/BegCardDonateButton';
-import { RequestCardOverflowButton } from '@/components/request/RequestCardOverflowButton';
+import { RequestCardOverflowMenu } from '@/components/request/RequestCardOverflowMenu';
+import type { RequestCardSafetyProps } from '@/components/request/request-card-safety';
 import { RequesterAvatar } from '@/components/request/RequesterAvatar';
 import { VerifiedByPlzBadge } from '@/components/safety/VerifiedByPlzBadge';
 import { VerificationStatusDot } from '@/components/safety/VerificationStatusDot';
@@ -26,15 +27,15 @@ function formatNaira(amount: number) {
 
 export interface RequestCardProps {
   request: TrendingRequest;
-  /** Opens hide / block / flag options for this card. */
-  onMenuPress?: () => void;
+  /** Inline hide / block / flag menu for this card. */
+  safetyMenu?: RequestCardSafetyProps;
 }
 
 /**
  * Avatar sits outside the navigation Link so tapping it opens photo preview only.
  * Card body uses Link asChild + TouchableOpacity for reliable iOS navigation.
  */
-export function RequestCard({ request, onMenuPress }: RequestCardProps) {
+export function RequestCard({ request, safetyMenu }: RequestCardProps) {
   const { user } = useCurrentUser();
   const {
     id,
@@ -61,7 +62,7 @@ export function RequestCard({ request, onMenuPress }: RequestCardProps) {
   const showActionButton = isOwner || Boolean(canDonate);
   const isVerifiedRequest = badge === VERIFIED_BY_PLZ_BADGE;
   const isOwnerKycVerified = Boolean(ownerKycVerified);
-  const showOverflowMenu = Boolean(onMenuPress && !isOwner && ownerUserId);
+  const showOverflowMenu = Boolean(safetyMenu && !isOwner && ownerUserId);
 
   return (
     <View style={styles.cardWrapper}>
@@ -75,10 +76,10 @@ export function RequestCard({ request, onMenuPress }: RequestCardProps) {
           previewPhoto
           previewLabel={name}
         />
-        <Link href={href} asChild push>
-          <TouchableOpacity
-            activeOpacity={0.7}
-            style={styles.topRowLink}
+        <View style={[styles.topRowMiddle, showOverflowMenu && styles.topRowMiddleWithMenu]}>
+          <Pressable
+            style={({ pressed }) => [styles.topRowLink, pressed && styles.topRowLinkPressed]}
+            onPress={() => router.push(href)}
             accessibilityRole="button"
             accessibilityLabel={`Request by ${name}`}
           >
@@ -100,9 +101,19 @@ export function RequestCard({ request, onMenuPress }: RequestCardProps) {
                 </Text>
               </View>
             </View>
-          </TouchableOpacity>
-        </Link>
-        {showOverflowMenu ? <RequestCardOverflowButton onPress={onMenuPress!} /> : null}
+          </Pressable>
+        </View>
+        {showOverflowMenu && safetyMenu ? (
+          <RequestCardOverflowMenu
+            target={safetyMenu.target}
+            isHidden={safetyMenu.isHidden}
+            isBlocked={safetyMenu.isBlocked}
+            showFlag={safetyMenu.showFlag}
+            onToggleHidden={safetyMenu.onToggleHidden}
+            onToggleBlocked={safetyMenu.onToggleBlocked}
+            onFlag={safetyMenu.onFlag}
+          />
+        ) : null}
       </View>
 
       <Link href={href} asChild push>
@@ -156,7 +167,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E5E5E5',
     backgroundColor: '#FFFFFF',
-    overflow: 'hidden',
+    overflow: 'visible',
     padding: 24,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
@@ -170,9 +181,19 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     gap: 12,
   },
-  topRowLink: {
+  topRowMiddle: {
     flex: 1,
     minWidth: 0,
+  },
+  topRowMiddleWithMenu: {
+    paddingRight: 4,
+  },
+  topRowLink: {
+    width: '100%',
+    minWidth: 0,
+  },
+  topRowLinkPressed: {
+    opacity: 0.7,
   },
   headerCopy: {
     flex: 1,
