@@ -66,6 +66,10 @@ function statusMeta(status: ActivityRequestStatus): { label: string; showCheck: 
       return { label: 'Withdrawn early', showCheck: false };
     case 'cancelled':
       return { label: 'Cancelled', showCheck: false };
+    case 'rejected':
+      return { label: 'Rejected', showCheck: false };
+    case 'flagged':
+      return { label: 'Under review', showCheck: false };
     case 'pending':
       return { label: 'Pending approval', showCheck: false };
     case 'active':

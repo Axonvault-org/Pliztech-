@@ -20,6 +20,8 @@ const STATUS_CONFIG: Record<
   expired: { bg: '#FFEDD5', text: '#EA580C', icon: 'time-outline' },
   withdrawn: { bg: '#E0E7FF', text: '#4338CA', icon: 'wallet-outline' },
   cancelled: { bg: '#FEE2E2', text: '#DC2626', icon: 'close-circle' },
+  rejected: { bg: '#FEE2E2', text: '#DC2626', icon: 'close-circle' },
+  flagged: { bg: '#FFEDD5', text: '#EA580C', icon: 'alert-circle' },
 };
 
 export interface ActivityRequestCardProps {
@@ -81,7 +83,11 @@ export function ActivityRequestCard({ request, onPress, onRequestPress }: Activi
               ? 'Pending'
               : status === 'withdrawn'
                 ? 'Withdrawn early'
-                : status.charAt(0).toUpperCase() + status.slice(1)}
+                : status === 'rejected'
+                  ? 'Rejected'
+                  : status === 'flagged'
+                    ? 'Under review'
+                    : status.charAt(0).toUpperCase() + status.slice(1)}
           </Text>
         </View>
         <Text style={styles.amount}>{formatNaira(amount)}</Text>

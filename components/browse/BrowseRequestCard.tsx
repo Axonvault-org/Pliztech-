@@ -1,12 +1,14 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Link } from 'expo-router';
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Link, router } from 'expo-router';
+import { Pressable, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { Text } from '@/components/Text';
 
 import { ProgressBar } from '@/components/ProgressBar';
 import { BegEvidenceButton } from '@/components/evidence/BegEvidenceButton';
 import { BegCardDonateButton } from '@/components/request/BegCardDonateButton';
+import { RequestCardOverflowMenu } from '@/components/request/RequestCardOverflowMenu';
+import type { RequestCardSafetyProps } from '@/components/request/request-card-safety';
 import { RequesterAvatar } from '@/components/request/RequesterAvatar';
 import { VerifiedByPlzBadge } from '@/components/safety/VerifiedByPlzBadge';
 import { VerificationStatusDot } from '@/components/safety/VerificationStatusDot';
@@ -33,9 +35,10 @@ function getCategoryIcon(categoryId: string) {
 export interface BrowseRequestCardProps {
   request: BrowseRequest;
   onPress?: () => void;
+  safetyMenu?: RequestCardSafetyProps;
 }
 
-export function BrowseRequestCard({ request, onPress }: BrowseRequestCardProps) {
+export function BrowseRequestCard({ request, onPress, safetyMenu }: BrowseRequestCardProps) {
   const { user } = useCurrentUser();
   const {
     id,
@@ -64,6 +67,7 @@ export function BrowseRequestCard({ request, onPress }: BrowseRequestCardProps) 
   const showActionButton = isOwner || Boolean(canDonate);
   const isVerifiedRequest = badge === VERIFIED_BY_PLZ_BADGE;
   const isOwnerKycVerified = Boolean(ownerKycVerified);
+  const showOverflowMenu = Boolean(safetyMenu && !isOwner && ownerUserId);
 
   return (
     <View style={styles.card}>
@@ -77,13 +81,15 @@ export function BrowseRequestCard({ request, onPress }: BrowseRequestCardProps) 
           previewPhoto
           previewLabel={name}
         />
-        <Link href={href} asChild push>
-          <TouchableOpacity
-            activeOpacity={0.7}
-            style={styles.topRowLink}
+        <View style={[styles.topRowMiddle, showOverflowMenu && styles.topRowMiddleWithMenu]}>
+          <Pressable
+            style={({ pressed }) => [styles.topRowLink, pressed && styles.topRowLinkPressed]}
+            onPress={() => {
+              onPress?.();
+              router.push(href);
+            }}
             accessibilityRole="button"
             accessibilityLabel={`Request by ${name}`}
-            onPress={onPress}
           >
             <View style={styles.headerCopy}>
               <View style={styles.nameRow}>
@@ -110,8 +116,19 @@ export function BrowseRequestCard({ request, onPress }: BrowseRequestCardProps) 
                 </View>
               </View>
             </View>
-          </TouchableOpacity>
-        </Link>
+          </Pressable>
+        </View>
+        {showOverflowMenu && safetyMenu ? (
+          <RequestCardOverflowMenu
+            target={safetyMenu.target}
+            isHidden={safetyMenu.isHidden}
+            isBlocked={safetyMenu.isBlocked}
+            showFlag={safetyMenu.showFlag}
+            onToggleHidden={safetyMenu.onToggleHidden}
+            onToggleBlocked={safetyMenu.onToggleBlocked}
+            onFlag={safetyMenu.onFlag}
+          />
+        ) : null}
       </View>
 
       <Link href={href} asChild push>
@@ -186,9 +203,19 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     gap: 12,
   },
-  topRowLink: {
+  topRowMiddle: {
     flex: 1,
     minWidth: 0,
+  },
+  topRowMiddleWithMenu: {
+    paddingRight: 4,
+  },
+  topRowLink: {
+    width: '100%',
+    minWidth: 0,
+  },
+  topRowLinkPressed: {
+    opacity: 0.7,
   },
   headerCopy: {
     flex: 1,

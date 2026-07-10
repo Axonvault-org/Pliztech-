@@ -6,7 +6,6 @@ import { useCallback, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import {
   ActivityIndicator,
-  Linking,
   Pressable,
   StyleSheet,
   View,
@@ -16,6 +15,7 @@ import { Text } from '@/components/Text';
 import { z } from 'zod';
 
 import { CTAButton } from '@/components/CTAButton';
+import { LegalDocumentLink } from '@/components/compliance/LegalDocumentLink';
 import { DateOfBirthPicker } from '@/components/form/DateOfBirthPicker';
 import { NigerianStatePicker } from '@/components/form/NigerianStatePicker';
 import { FormTextInput } from '@/components/FormTextInput';
@@ -253,14 +253,6 @@ export default function SignupProfileScreen() {
 
   const onBack = () => {
     router.back();
-  };
-
-  const onTermsPress = () => {
-    Linking.openURL('https://plz.ng');
-  };
-
-  const onPrivacyPress = () => {
-    Linking.openURL('https://plz.ng/privacy/');
   };
 
   const onGoToLogin = () => {
@@ -572,14 +564,10 @@ export default function SignupProfileScreen() {
             <View style={styles.consentTextWrap}>
               <Text style={styles.consentText}>
                 I agree to the{' '}
-                <Text style={styles.consentLink} onPress={onTermsPress}>
-                  Terms of Service
-                </Text>
-                {' '}and{' '}
-                <Text style={styles.consentLink} onPress={onPrivacyPress}>
-                  Privacy Policy
-                </Text>
               </Text>
+              <LegalDocumentLink kind="terms" style={styles.consentLink} />
+              <Text style={styles.consentText}> and </Text>
+              <LegalDocumentLink kind="privacy" style={styles.consentLink} />
             </View>
           </View>
           {consentError ? <Text style={styles.consentError}>{consentError}</Text> : null}
@@ -708,6 +696,9 @@ const styles = StyleSheet.create({
   },
   consentTextWrap: {
     flex: 1,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
   },
   consentText: {
     fontSize: 14,

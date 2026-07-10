@@ -1,9 +1,11 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
 import { router, type Href } from 'expo-router';
-import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 import { HeaderNotificationButton } from '@/components/home/HeaderNotificationButton';
+import type { RequestCardSafetyProps } from '@/components/request/request-card-safety';
+import { RequestCardOverflowMenu } from '@/components/request/RequestCardOverflowMenu';
 import { useUnreadNotificationCount } from '@/hooks/useUnreadNotificationCount';
 
 const LOGO = require('@/assets/images/pliz-logo.png');
@@ -11,10 +13,7 @@ const LOGO = require('@/assets/images/pliz-logo.png');
 const NOTIFICATIONS_HREF = '/(tabs)/notifications' as Href;
 
 export type RequestDetailHeaderProps = {
-  /** Report / flag this request (Figma: top-right flag). */
-  onReportPress?: () => void;
-  /** Optional overflow menu (hide, block, etc.). */
-  onMenuPress?: () => void;
+  safetyMenu?: RequestCardSafetyProps;
 };
 
 function goBackOrHome() {
@@ -25,16 +24,8 @@ function goBackOrHome() {
   }
 }
 
-export function RequestDetailHeader({ onReportPress, onMenuPress }: RequestDetailHeaderProps) {
+export function RequestDetailHeader({ safetyMenu }: RequestDetailHeaderProps) {
   const { unreadCount } = useUnreadNotificationCount();
-
-  const handleReport = () => {
-    if (onReportPress) {
-      onReportPress();
-      return;
-    }
-    Alert.alert('Report request', 'Thanks for looking out for the community. Reporting will be available soon.');
-  };
 
   return (
     <View style={styles.header}>
@@ -54,24 +45,18 @@ export function RequestDetailHeader({ onReportPress, onMenuPress }: RequestDetai
           onPress={() => router.push(NOTIFICATIONS_HREF)}
           unreadCount={unreadCount}
         />
-        {onMenuPress ? (
-          <Pressable
-            style={styles.iconCircle}
-            onPress={onMenuPress}
-            accessibilityLabel="More options"
-            accessibilityRole="button"
-          >
-            <Ionicons name="ellipsis-horizontal" size={20} color="#1F2937" />
-          </Pressable>
+        {safetyMenu ? (
+          <RequestCardOverflowMenu
+            variant="header"
+            target={safetyMenu.target}
+            isHidden={safetyMenu.isHidden}
+            isBlocked={safetyMenu.isBlocked}
+            showFlag={safetyMenu.showFlag}
+            onToggleHidden={safetyMenu.onToggleHidden}
+            onToggleBlocked={safetyMenu.onToggleBlocked}
+            onFlag={safetyMenu.onFlag}
+          />
         ) : null}
-        <Pressable
-          style={styles.iconCircle}
-          onPress={handleReport}
-          accessibilityLabel="Report this request"
-          accessibilityRole="button"
-        >
-          <Ionicons name="flag-outline" size={20} color="#1F2937" />
-        </Pressable>
       </View>
     </View>
   );
@@ -97,14 +82,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'flex-end',
     gap: 6,
-  },
-  iconCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#F3F4F6',
-    alignItems: 'center',
-    justifyContent: 'center',
+    zIndex: 10,
+    position: 'relative',
   },
   logoWrap: {
     position: 'absolute',

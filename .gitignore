@@ -47,3 +47,4 @@ app-example
 # Cursor
 .cursor/
 .vscode/
+docs/

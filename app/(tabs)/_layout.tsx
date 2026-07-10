@@ -3,6 +3,7 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
 import { StoryIndicatorProvider } from '@/contexts/StoryIndicatorContext';
+import { PushNotificationsBootstrap } from '@/components/PushNotificationsBootstrap';
 import { useAndroidAuthenticatedBackHandler } from '@/hooks/useAndroidAuthenticatedBackHandler';
 
 export const unstable_settings = {
@@ -37,6 +38,7 @@ export default function TabLayout() {
 
   return (
     <StoryIndicatorProvider>
+      {user ? <PushNotificationsBootstrap /> : null}
       <Stack
         screenOptions={{
           headerShown: false,

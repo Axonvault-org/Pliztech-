@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 
 import { CTAButton } from '@/components/CTAButton';
+import { DonationTermsConsent } from '@/components/compliance/DonationTermsConsent';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
@@ -255,6 +256,7 @@ export default function CommunityPulseScreen() {
             disabled={busy}
             leftIcon="heart-outline"
           />
+          <DonationTermsConsent />
         </View>
 
         <Text style={styles.sectionTitle}>Recent supporters</Text>

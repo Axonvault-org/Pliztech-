@@ -32,6 +32,27 @@
     "plugins": [
       "expo-router",
       [
+        "expo-build-properties",
+        {
+          "ios": {
+            "extraPods": [
+              {
+                "name": "GoogleUtilities/Environment",
+                "modular_headers": true
+              },
+              {
+                "name": "GoogleUtilities/UserDefaults",
+                "modular_headers": true
+              },
+              {
+                "name": "RecaptchaInterop",
+                "modular_headers": true
+              }
+            ]
+          }
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "image": "./assets/images/pliz-logo.png",
@@ -53,13 +74,22 @@
       "expo-web-browser",
       "expo-apple-authentication",
       [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/pliz-logo.png",
+          "color": "#2E8BEA"
+        }
+      ],
+      [
         "expo-image-picker",
         {
-          "photosPermission": "Plz needs access to your photos so you can choose a profile picture and personalize your account.",
-          "cameraPermission": "Plz needs camera access so you can take a profile photo or verify your identity.",
+          "photosPermission": "Plz needs access to your photos for profile pictures, identity verification (KYC), and optional request evidence.",
+          "cameraPermission": "Plz needs camera access for profile photos, identity verification (KYC), and optional request evidence.",
           "microphonePermission": false
         }
-      ]
+      ],
+      "expo-font",
+      "expo-build-properties"
     ],
     "experiments": {
       "typedRoutes": true,

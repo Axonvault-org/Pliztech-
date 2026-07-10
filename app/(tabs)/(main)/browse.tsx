@@ -1,4 +1,3 @@
-import { router } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -17,19 +16,39 @@ import { FilterChips, type MainFilter } from '@/components/browse/FilterChips';
 import { SearchBar } from '@/components/browse/SearchBar';
 import { Screen } from '@/components/Screen';
 import {
+  ReportContentSheet,
+  type ReportTarget,
+} from '@/components/safety/ReportContentSheet';
+import {
   feedBegToBrowseRequest,
   getBegsFeed,
   uiCategoryToApiCategory,
 } from '@/lib/api/beg';
 import { PlizApiError } from '@/lib/api/types';
+import { getAccessToken } from '@/lib/auth/access-token';
+import { withUnauthorizedRecovery } from '@/lib/auth/session-expired';
 import { queryKeys } from '@/lib/query/query-keys';
 import { STALE_TIMES } from '@/lib/query/stale-times';
 import type { BrowseRequest } from '@/lib/types/home';
+import { useCurrentUser } from '@/contexts/CurrentUserContext';
+import { useRequestSafetyActions } from '@/hooks/useRequestSafetyActions';
+import { buildRequestCardSafetyMenu } from '@/components/request/request-card-safety';
+import { reportBeg } from '@/lib/api/reports';
 
 export default function BrowseScreen() {
+  const { user, signOut } = useCurrentUser();
+  const {
+    hiddenBegIds,
+    blockedUserIds,
+    toggleHidden,
+    toggleBlocked,
+    runFlag,
+  } = useRequestSafetyActions();
   const [search, setSearch] = useState('');
   const [mainFilter, setMainFilter] = useState<MainFilter>('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
+  const [reportVisible, setReportVisible] = useState(false);
+  const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
 
   const apiCategory =
     categoryFilter === 'all' ? undefined : uiCategoryToApiCategory(categoryFilter);
@@ -37,10 +56,12 @@ export default function BrowseScreen() {
   const begsQuery = useQuery({
     queryKey: queryKeys.begsFeed({ page: 1, limit: 50, category: apiCategory }),
     queryFn: async () => {
+      const token = await getAccessToken();
       const { begs } = await getBegsFeed({
         page: 1,
         limit: 50,
         category: apiCategory,
+        accessToken: token,
       });
       return begs.map(feedBegToBrowseRequest);
     },
@@ -109,9 +130,31 @@ export default function BrowseScreen() {
     return list;
   }, [search, mainFilter, categoryFilter, requests]);
 
+  const safetyMenuForRequest = useCallback(
+    (request: BrowseRequest) => {
+      if (!user || !request.ownerUserId) return undefined;
+      return buildRequestCardSafetyMenu({
+        begId: request.id,
+        ownerUserId: request.ownerUserId,
+        hiddenBegIds,
+        blockedUserIds,
+        toggleHidden,
+        toggleBlocked,
+        runFlag,
+        onFlag: () => {
+          setReportTarget({ type: 'beg', id: request.id, label: request.text });
+          setReportVisible(true);
+        },
+      });
+    },
+    [user, hiddenBegIds, blockedUserIds, toggleHidden, toggleBlocked, runFlag]
+  );
+
   const renderItem = useCallback(
-    ({ item }: { item: BrowseRequest }) => <BrowseRequestCard request={item} />,
-    []
+    ({ item }: { item: BrowseRequest }) => (
+      <BrowseRequestCard request={item} safetyMenu={safetyMenuForRequest(item)} />
+    ),
+    [safetyMenuForRequest]
   );
 
   const ListHeader = useMemo(
@@ -167,6 +210,20 @@ export default function BrowseScreen() {
             </View>
           ) : null
         }
+      />
+      <ReportContentSheet
+        visible={reportVisible}
+        target={reportTarget}
+        onClose={() => {
+          setReportVisible(false);
+          setReportTarget(null);
+        }}
+        onSubmit={async (body) => {
+          if (!reportTarget || reportTarget.type !== 'beg') return;
+          await withUnauthorizedRecovery(signOut, (token) =>
+            reportBeg(token, reportTarget.id, body)
+          );
+        }}
       />
     </Screen>
   );

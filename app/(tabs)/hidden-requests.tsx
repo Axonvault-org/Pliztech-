@@ -6,12 +6,14 @@ import { AppHeaderTitleRow } from '@/components/layout/AppHeaderTitleRow';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
+import { useInvalidateAppQueries } from '@/hooks/queries/useInvalidateAppQueries';
 import { getHiddenBegs, unhideBeg, type HiddenBegRow } from '@/lib/api/beg';
 import { formatPlizApiErrorForUser } from '@/lib/api/types';
 import { withUnauthorizedRecovery } from '@/lib/auth/session-expired';
 
 export default function HiddenRequestsScreen() {
   const { signOut } = useCurrentUser();
+  const invalidateAppQueries = useInvalidateAppQueries();
   const [rows, setRows] = useState<HiddenBegRow[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -42,6 +44,7 @@ export default function HiddenRequestsScreen() {
             try {
               await withUnauthorizedRecovery(signOut, (token) => unhideBeg(token, row.id));
               setRows((prev) => prev.filter((item) => item.id !== row.id));
+              await invalidateAppQueries('all');
             } catch (e) {
               Alert.alert('Could not unhide', formatPlizApiErrorForUser(e));
             }

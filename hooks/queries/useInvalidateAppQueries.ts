@@ -17,6 +17,8 @@ export function useInvalidateAppQueries() {
           queryClient.invalidateQueries({ queryKey: ['donations', 'mine'] })
         );
         tasks.push(queryClient.invalidateQueries({ queryKey: ['begs'] }));
+        tasks.push(queryClient.invalidateQueries({ queryKey: queryKeys.hiddenBegIds }));
+        tasks.push(queryClient.invalidateQueries({ queryKey: queryKeys.blockedUserIds }));
       }
 
       if (scope === 'profile' || scope === 'all') {
