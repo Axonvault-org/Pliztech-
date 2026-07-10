@@ -14,6 +14,9 @@
     "staging": {
       "distribution": "internal",
       "channel": "staging",
+      "ios": {
+        "image": "macos-sequoia-15.6-xcode-16.4"
+      },
       "env": {
         "EXPO_PUBLIC_API_BASE_URL": "https://api-staging.plz.ng",
         "EXPO_PUBLIC_FRONTEND_URL": "https://app-staging.plz.ng"
@@ -29,6 +32,11 @@
     }
   },
   "submit": {
+    "staging": {
+      "ios": {
+        "ascAppId": "6774841857"
+      }
+    },
     "production": {
       "ios": {
         "ascAppId": "6774841857"

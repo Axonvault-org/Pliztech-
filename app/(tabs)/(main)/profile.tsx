@@ -20,6 +20,11 @@ import {
   useCurrentUser,
 } from '@/contexts/CurrentUserContext';
 import { updateProfile } from '@/lib/api/profile';
+import {
+  getNotificationPreferences,
+  patchNotificationPreferences,
+} from '@/lib/api/notification-preferences';
+import { syncPushTokenRegistration } from '@/hooks/usePushNotifications';
 import { getAccessToken } from '@/lib/auth/access-token';
 import {
   isUnauthorizedSessionError,
@@ -33,7 +38,26 @@ export default function ProfileScreen() {
   const profilePictureQuery = useProfilePictureQuery(signOut);
 
   const [anonymousMode, setAnonymousMode] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(true);
+  const [pushPrefsLoading, setPushPrefsLoading] = useState(true);
   const profilePicture = profilePictureQuery.data ?? null;
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const prefs = await getNotificationPreferences();
+        if (!cancelled) setPushEnabled(prefs.pushEnabled);
+      } catch {
+        /* keep default */
+      } finally {
+        if (!cancelled) setPushPrefsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     setAnonymousMode(user?.profile?.isAnonymous ?? false);
@@ -113,12 +137,21 @@ export default function ProfileScreen() {
             icon="notifications-outline"
             title="Push Notifications"
             subtitle="Alerts for donations, approvals, and replies"
-            badge="Coming soon"
             showArrow={false}
             showToggle
-            toggleValue={false}
-            onToggleChange={undefined}
-            disabled
+            toggleValue={pushEnabled}
+            onToggleChange={async (value) => {
+              if (pushPrefsLoading) return;
+              setPushEnabled(value);
+              try {
+                await patchNotificationPreferences({ pushEnabled: value });
+                if (value) await syncPushTokenRegistration();
+              } catch {
+                setPushEnabled(!value);
+                Alert.alert('Push notifications', 'Could not update your preference. Try again.');
+              }
+            }}
+            disabled={pushPrefsLoading}
           />
           <ProfileRow
             icon="sync-outline"

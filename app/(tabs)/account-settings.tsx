@@ -1,11 +1,18 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Switch, View } from 'react-native';
 
 import { Text } from '@/components/Text';
 
 import { AppHeaderTitleRow } from '@/components/layout/AppHeaderTitleRow';
 import { Screen } from '@/components/Screen';
+import {
+  getNotificationPreferences,
+  patchNotificationPreferences,
+} from '@/lib/api/notification-preferences';
+import { syncPushTokenRegistration } from '@/hooks/usePushNotifications';
+import { formatPlizApiErrorForUser } from '@/lib/api/types';
 
 const ACCENT_BLUE = '#2E8BEA';
 const BORDER_GRAY = '#E5E7EB';
@@ -103,6 +110,47 @@ function SettingsRow({
 }
 
 export default function AccountSettingsScreen() {
+  const [pushEnabled, setPushEnabled] = useState(true);
+  const [prefsLoading, setPrefsLoading] = useState(true);
+  const [prefsSaving, setPrefsSaving] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const prefs = await getNotificationPreferences();
+        if (!cancelled) {
+          setPushEnabled(prefs.pushEnabled);
+        }
+      } catch {
+        // Preferences unavailable — keep defaults
+      } finally {
+        if (!cancelled) setPrefsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const updatePref = useCallback(
+    async (patch: { pushEnabled?: boolean }) => {
+      setPrefsSaving(true);
+      try {
+        const prefs = await patchNotificationPreferences(patch);
+        setPushEnabled(prefs.pushEnabled);
+        if (patch.pushEnabled === true) {
+          await syncPushTokenRegistration();
+        }
+      } catch (e) {
+        Alert.alert('Notifications', formatPlizApiErrorForUser(e));
+      } finally {
+        setPrefsSaving(false);
+      }
+    },
+    []
+  );
+
   const handleLanguage = () => {
     Alert.alert(
       'Language',
@@ -141,15 +189,17 @@ export default function AccountSettingsScreen() {
 
       <SettingsSection title="Notification Preferences">
         <SettingsRow
-          icon="mail-outline"
-          title="Email Notifications"
-          subtitle="Receive updates via email"
-          badge="Coming soon"
+          icon="notifications-outline"
+          title="Push notifications"
+          subtitle="Alerts for donations, approvals, and support messages"
           showToggle
-          toggleValue={false}
-          onToggleChange={undefined}
-          disabled
-          isLast={false}
+          toggleValue={pushEnabled}
+          onToggleChange={(value) => {
+            setPushEnabled(value);
+            void updatePref({ pushEnabled: value });
+          }}
+          disabled={prefsLoading || prefsSaving}
+          isLast
         />
         <SettingsRow
           icon="call-outline"

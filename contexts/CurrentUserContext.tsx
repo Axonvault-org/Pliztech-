@@ -22,6 +22,7 @@ import {
 } from '@/lib/auth/session-expired';
 import { queryKeys } from '@/lib/query/query-keys';
 import { STALE_TIMES } from '@/lib/query/stale-times';
+import { clearRegisteredPushTokenOnLogout } from '@/hooks/usePushNotifications';
 
 export function displayFirstName(user: MeUser | null): string {
   if (!user) return '';
@@ -177,6 +178,7 @@ export function CurrentUserProvider({ children }: { children: ReactNode }) {
           }
         }
       }
+      await clearRegisteredPushTokenOnLogout();
       await clearTokens();
       queryClient.setQueryData(queryKeys.me, null);
       queryClient.removeQueries({ queryKey: queryKeys.me });
