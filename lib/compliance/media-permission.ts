@@ -43,6 +43,7 @@ const RATIONALE_COPY: Record<MediaPermissionKind, { title: string; message: stri
 
 /**
  * Shows a one-time rationale (Alert) before the OS permission dialog on native.
+ * On iOS, only a Continue action is offered so the system permission prompt always follows.
  */
 export async function ensurePermissionRationale(kind: MediaPermissionKind): Promise<boolean> {
   if (Platform.OS === 'web') return true;
@@ -50,6 +51,16 @@ export async function ensurePermissionRationale(kind: MediaPermissionKind): Prom
 
   const copy = RATIONALE_COPY[kind];
   return new Promise((resolve) => {
+    const onContinue = () => {
+      void markPermissionRationaleSeen(kind);
+      resolve(true);
+    };
+
+    if (Platform.OS === 'ios') {
+      Alert.alert(copy.title, copy.message, [{ text: 'Continue', onPress: onContinue }]);
+      return;
+    }
+
     Alert.alert(copy.title, copy.message, [
       {
         text: 'Not now',
@@ -58,10 +69,7 @@ export async function ensurePermissionRationale(kind: MediaPermissionKind): Prom
       },
       {
         text: 'Continue',
-        onPress: () => {
-          void markPermissionRationaleSeen(kind);
-          resolve(true);
-        },
+        onPress: onContinue,
       },
     ]);
   });

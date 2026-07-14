@@ -417,10 +417,12 @@ export async function loginWithApple(body: {
 
 export type RefreshAccessTokenResult = {
   accessToken: string;
+  /** Rotated refresh JWT; required on native, omitted when web uses httpOnly cookie. */
+  refreshToken?: string;
 };
 
 /**
- * POST /api/auth/refresh-token — new access JWT (refresh token unchanged).
+ * POST /api/auth/refresh-token — new access JWT and rotated refresh token.
  * On web, omit `refreshToken` to use the httpOnly cookie set at login.
  */
 export async function refreshAccessToken(
@@ -461,7 +463,7 @@ export async function refreshAccessToken(
   const data = json as {
     success?: boolean;
     message?: string;
-    data?: { accessToken?: string };
+    data?: { accessToken?: string; refreshToken?: string };
   };
 
   if (!res.ok || data.success !== true || !data.data?.accessToken) {
@@ -471,7 +473,15 @@ export async function refreshAccessToken(
     );
   }
 
-  return { accessToken: data.data.accessToken };
+  const nativeRefresh = !useCookie && rt;
+  if (nativeRefresh && !data.data.refreshToken?.trim()) {
+    throw new PlizApiError('Invalid refresh response from server', res.status);
+  }
+
+  return {
+    accessToken: data.data.accessToken,
+    refreshToken: data.data.refreshToken?.trim(),
+  };
 }
 
 /**
