@@ -52,6 +52,14 @@ export function transactionIdFromPaymentRedirectUrl(url: string): string | null 
   return null;
 }
 
+export function statusFromPaymentRedirectUrl(url: string): string | null {
+  const parsed = Linking.parse(url);
+  const status = parsed.queryParams?.status;
+  if (typeof status === 'string' && status.trim()) return status.trim().toLowerCase();
+  if (Array.isArray(status) && status[0]) return String(status[0]).trim().toLowerCase();
+  return null;
+}
+
 /** @deprecated Use payment-callback-url helpers */
 export const getPaystackWebCallbackUrl = getPaymentWebCallbackUrl;
 export const getPaystackNativeCallbackUrl = getPaymentNativeCallbackUrl;

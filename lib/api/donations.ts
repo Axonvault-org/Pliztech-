@@ -70,6 +70,87 @@ export type VerifyDonationApiResult = {
   };
 };
 
+export type CancelDonationApiResult = {
+  status: string;
+  canRetry: boolean;
+  message: string;
+  paymentReference: string;
+};
+
+/**
+ * POST /api/donations/cancel — asks the provider to stop an unsubmitted checkout.
+ * The returned status is authoritative: callers must not infer cancellation from
+ * a dismissed browser alone.
+ */
+export async function cancelDonationByReference(
+  accessToken: string,
+  paymentReference: string
+): Promise<CancelDonationApiResult> {
+  const reference = paymentReference.trim();
+  if (!reference) {
+    throw new PlizApiError('Missing payment reference.', 400);
+  }
+
+  const res = await fetch(apiUrl('/api/donations/cancel'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ payment_reference: reference }),
+  });
+
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    throw new PlizApiError('Invalid response from server', res.status);
+  }
+
+  const body =
+    json && typeof json === 'object' && !Array.isArray(json)
+      ? (json as Record<string, unknown>)
+      : {};
+  const nested =
+    body.data && typeof body.data === 'object' && !Array.isArray(body.data)
+      ? (body.data as Record<string, unknown>)
+      : {};
+
+  if (!res.ok) {
+    throw new PlizApiError(
+      typeof body.message === 'string' ? body.message : `Request failed (${res.status})`,
+      res.status
+    );
+  }
+
+  const statusValue = nested.status ?? body.status;
+  const canRetryValue =
+    nested.can_retry ?? nested.canRetry ?? body.can_retry ?? body.canRetry;
+  const referenceValue =
+    nested.payment_reference ??
+    nested.paymentReference ??
+    body.payment_reference ??
+    body.paymentReference;
+
+  if (typeof statusValue !== 'string' || typeof canRetryValue !== 'boolean') {
+    throw new PlizApiError('Unexpected cancellation response shape', res.status);
+  }
+
+  return {
+    status: statusValue.trim().toLowerCase(),
+    canRetry: canRetryValue,
+    message:
+      typeof body.message === 'string' && body.message.trim()
+        ? body.message.trim()
+        : `Payment status: ${statusValue}`,
+    paymentReference:
+      typeof referenceValue === 'string' && referenceValue.trim()
+        ? referenceValue.trim()
+        : reference,
+  };
+}
+
 /**
  * Calls backend to verify a Flutterwave transaction by reference (server verifies + processes donation).
  * No auth header — route is public on the API.

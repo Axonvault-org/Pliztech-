@@ -5,8 +5,16 @@ import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { DonationThankYouModal } from '@/components/donation/DonationThankYouModal';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
-import { verifyDonationByReference, waitForDonationVerification, type VerifyDonationApiResult } from '@/lib/api/donations';
-import { consumePendingDonationThankYouIfBegMatches } from '@/lib/donation/pending-thank-you';
+import {
+  cancelDonationByReference,
+  verifyDonationByReference,
+  waitForDonationVerification,
+  type VerifyDonationApiResult,
+} from '@/lib/api/donations';
+import {
+  clearPendingDonationThankYou,
+  consumePendingDonationThankYouIfBegMatches,
+} from '@/lib/donation/pending-thank-you';
 import {
   clearPendingPaymentCheckout,
   readPendingPaymentCheckout,
@@ -19,8 +27,10 @@ import {
 import { navigateToRequestDetailAfterDonation } from '@/lib/navigation/post-donation-navigation';
 import { openPaymentCheckout } from '@/lib/utils/open-payment-checkout';
 import { useInvalidateAppQueries } from '@/hooks/queries/useInvalidateAppQueries';
+import { useCurrentUser } from '@/contexts/CurrentUserContext';
+import { withUnauthorizedRecovery } from '@/lib/auth/session-expired';
 
-type Phase = 'checkout' | 'loading' | 'success' | 'error';
+type Phase = 'checkout' | 'loading' | 'success' | 'cancelled' | 'error';
 
 function firstQuery(value: string | string[] | undefined): string {
   if (typeof value === 'string') return value.trim();
@@ -45,6 +55,7 @@ export default function PaymentCallbackScreen() {
     tx_ref?: string;
     transaction_id?: string;
     checkout?: string;
+    status?: string;
   }>();
 
   const reference = useMemo(() => {
@@ -60,6 +71,9 @@ export default function PaymentCallbackScreen() {
   );
 
   const shouldOpenCheckout = isTruthyFlag(params.checkout);
+  const callbackStatus = firstQuery(params.status).toLowerCase();
+  const isCancellationReturn =
+    callbackStatus === 'cancelled' || callbackStatus === 'canceled';
 
   const [phase, setPhase] = useState<Phase>(
     shouldOpenCheckout && reference ? 'checkout' : reference ? 'loading' : 'error'
@@ -72,10 +86,18 @@ export default function PaymentCallbackScreen() {
     showRecipientName: boolean;
     donationId?: string;
   } | null>(null);
+  const [retryState, setRetryState] = useState<{
+    begId: string;
+    amount?: number;
+    showRecipientName?: boolean;
+    canRetry: boolean;
+  } | null>(null);
 
   const verifyHandledRef = useRef(false);
+  const cancellationHandledRef = useRef(false);
   const checkoutFlowRef = useRef<Promise<void> | null>(null);
   const invalidateAppQueries = useInvalidateAppQueries();
+  const { signOut } = useCurrentUser();
 
   const applyVerifyResult = useCallback(async (result: VerifyDonationApiResult) => {
     if (verifyHandledRef.current) return;
@@ -83,6 +105,7 @@ export default function PaymentCallbackScreen() {
     if (reference) markPaymentCheckoutInactive(reference);
 
     if (result.success) {
+      await clearPendingPaymentCheckout();
       await invalidateAppQueries('donation');
       const verifiedBegId = result.data?.begId ?? null;
       setBegId(verifiedBegId);
@@ -138,6 +161,59 @@ export default function PaymentCallbackScreen() {
     await applyVerifyResult(lastTry);
   }, [reference, transactionId, applyVerifyResult]);
 
+  const handleCancellationReturn = useCallback(async () => {
+    if (!reference || cancellationHandledRef.current) return;
+    cancellationHandledRef.current = true;
+    setPhase('loading');
+    setMessage('Checking payment status…');
+
+    const pending = await readPendingPaymentCheckout(reference);
+    try {
+      const result = await withUnauthorizedRecovery(signOut, (token) =>
+        cancelDonationByReference(token, reference)
+      );
+      markPaymentCheckoutInactive(reference);
+
+      if (result.status === 'cancelled' || result.status === 'canceled') {
+        await Promise.all([
+          clearPendingPaymentCheckout(),
+          clearPendingDonationThankYou(),
+        ]);
+        setBegId(pending?.begId ?? null);
+        setRetryState(
+          pending?.begId
+            ? {
+                begId: pending.begId,
+                amount: pending.amount,
+                showRecipientName: pending.showRecipientName,
+                canRetry: result.canRetry,
+              }
+            : null
+        );
+        setPhase('cancelled');
+        setMessage(result.message);
+        return;
+      }
+
+      if (['successful', 'succeeded', 'completed'].includes(result.status)) {
+        await runVerify();
+        return;
+      }
+
+      setPhase('error');
+      setMessage(
+        `${result.message}\n\nProvider status: ${result.status}. ${
+          result.canRetry
+            ? 'You can return to the request and try another payment method.'
+            : 'Do not retry until this payment reaches a final status.'
+        }`
+      );
+    } catch (error) {
+      setPhase('error');
+      setMessage(error instanceof Error ? error.message : 'Could not cancel this payment.');
+    }
+  }, [reference, runVerify, signOut]);
+
   const completeCheckoutFlow = useCallback(async () => {
     if (!reference || verifyHandledRef.current) return;
 
@@ -171,8 +247,6 @@ export default function PaymentCallbackScreen() {
 
     if (verifyHandledRef.current) return;
 
-    await clearPendingPaymentCheckout();
-
     if (
       checkoutResult.outcome === 'completed' &&
       checkoutResult.verifiedResult?.success
@@ -180,6 +254,13 @@ export default function PaymentCallbackScreen() {
       await applyVerifyResult(checkoutResult.verifiedResult);
       return;
     }
+
+    if (checkoutResult.outcome === 'cancelled') {
+      await handleCancellationReturn();
+      return;
+    }
+
+    await clearPendingPaymentCheckout();
 
     if (checkoutResult.outcome === 'completed') {
       await runVerify();
@@ -200,12 +281,17 @@ export default function PaymentCallbackScreen() {
     setMessage(
       'We could not confirm this payment yet. If checkout showed success, wait a moment and open the request again — or contact support with your reference.'
     );
-  }, [reference, transactionId, applyVerifyResult, runVerify]);
+  }, [reference, transactionId, applyVerifyResult, runVerify, handleCancellationReturn]);
 
   useEffect(() => {
     if (!reference || verifyHandledRef.current) return;
 
     void (async () => {
+      if (isCancellationReturn) {
+        await handleCancellationReturn();
+        return;
+      }
+
       if (transactionId) {
         await runVerify();
         return;
@@ -232,7 +318,15 @@ export default function PaymentCallbackScreen() {
         await runVerify();
       }
     })();
-  }, [reference, transactionId, shouldOpenCheckout, runVerify, completeCheckoutFlow]);
+  }, [
+    reference,
+    transactionId,
+    shouldOpenCheckout,
+    isCancellationReturn,
+    runVerify,
+    handleCancellationReturn,
+    completeCheckoutFlow,
+  ]);
 
   const goHome = useCallback(() => {
     router.replace('/(tabs)/(main)');
@@ -246,6 +340,27 @@ export default function PaymentCallbackScreen() {
     }
   }, [begId, goHome]);
 
+  const returnToCancelledRequest = useCallback(() => {
+    const targetBegId = retryState?.begId ?? begId;
+    if (!targetBegId) {
+      goHome();
+      return;
+    }
+    router.replace({
+      pathname: '/(tabs)/request/[id]',
+      params: {
+        id: targetBegId,
+        donate: '1',
+        ...(typeof retryState?.amount === 'number'
+          ? { restoreAmount: String(retryState.amount) }
+          : {}),
+        ...(typeof retryState?.showRecipientName === 'boolean'
+          ? { restoreShowName: String(retryState.showRecipientName) }
+          : {}),
+      },
+    });
+  }, [begId, goHome, retryState]);
+
   const onThankYouDone = useCallback(() => {
     setThankYouSheet(null);
     viewRequest();
@@ -253,7 +368,11 @@ export default function PaymentCallbackScreen() {
 
   const showThankYouModal = thankYouSheet != null;
   const showStatusCard =
-    phase === 'checkout' || phase === 'loading' || (phase === 'success' && !showThankYouModal) || phase === 'error';
+    phase === 'checkout' ||
+    phase === 'loading' ||
+    phase === 'cancelled' ||
+    (phase === 'success' && !showThankYouModal) ||
+    phase === 'error';
 
   return (
     <Screen backgroundColor="#FFFFFF" centerVertical>
@@ -309,10 +428,33 @@ export default function PaymentCallbackScreen() {
                 <Text style={styles.secondaryBtnLabel}>Home</Text>
               </Pressable>
             </>
+          ) : phase === 'cancelled' ? (
+            <>
+              <Text style={styles.emoji}>×</Text>
+              <Text style={styles.title}>Payment cancelled</Text>
+              <Text style={styles.body}>{message}</Text>
+              {reference ? (
+                <Text style={styles.ref} selectable>
+                  Reference: {reference}
+                </Text>
+              ) : null}
+              <Pressable
+                style={styles.primaryBtn}
+                onPress={returnToCancelledRequest}
+                accessibilityRole="button"
+                accessibilityLabel="Return to donation"
+              >
+                <Text style={styles.primaryBtnLabel}>
+                  {retryState?.canRetry ? 'Try again' : 'Return to request'}
+                </Text>
+              </Pressable>
+            </>
           ) : (
             <>
               <Text style={styles.emoji}>!</Text>
-              <Text style={styles.title}>Payment not confirmed</Text>
+              <Text style={styles.title}>
+                {isCancellationReturn ? 'Cancellation unavailable' : 'Payment not confirmed'}
+              </Text>
               <Text style={styles.body}>{message}</Text>
               {reference ? (
                 <Text style={styles.ref} selectable>
