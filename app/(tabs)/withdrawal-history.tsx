@@ -23,6 +23,7 @@ import {
   isUnauthorizedSessionError,
   recoverFromUnauthorized,
 } from '@/lib/auth/session-expired';
+import { WITHDRAWAL_SUBMITTED_SUCCESS_MESSAGE } from '@/lib/withdrawal/copy';
 
 const PAGE_SIZE = 20;
 
@@ -36,7 +37,7 @@ export default function WithdrawalHistoryScreen() {
   const submittedNotice = (() => {
     const raw = Array.isArray(notice) ? notice[0] : notice;
     const text = typeof raw === 'string' ? raw.trim() : '';
-    return text || 'Your withdrawal request was submitted successfully.';
+    return text || WITHDRAWAL_SUBMITTED_SUCCESS_MESSAGE;
   })();
 
   const { signOut } = useCurrentUser();

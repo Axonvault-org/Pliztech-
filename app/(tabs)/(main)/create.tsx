@@ -1,4 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import * as ImagePicker from 'expo-image-picker';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { router, type Href } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -19,11 +20,17 @@ import { ConfirmRequestModal } from '@/components/create/ConfirmRequestModal';
 import { RequestLiveModal } from '@/components/create/RequestLiveModal';
 import { RequestLimitAlert } from '@/components/create/RequestLimitAlert';
 import { CTAButton } from '@/components/CTAButton';
+import { LegalDocumentLink } from '@/components/compliance/LegalDocumentLink';
 import { FormTextArea } from '@/components/FormTextArea';
 import { AppHeaderLogoRow } from '@/components/layout/AppHeaderLogoRow';
 import { Screen } from '@/components/Screen';
 import { categoryEmojiForId, REQUEST_CATEGORIES } from '@/constants/categories';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
+import {
+  BEG_MAX_DESCRIPTION_WORDS,
+  clampBegDescriptionWhileTyping,
+  countDescriptionWords,
+} from '@/lib/beg/description-limits';
 import {
   getBegAmountTierError,
   parseAmountInput,
@@ -36,14 +43,18 @@ import {
   type TrustProgress,
   uiCategoryToApiCategory,
 } from '@/lib/api/beg';
+import { uploadBegEvidence, type EvidenceUploadFile } from '@/lib/api/evidence';
 import { formatPlizApiErrorForUser } from '@/lib/api/types';
+import { ensurePermissionRationale } from '@/lib/compliance/media-permission';
 import {
   getAccessTokenOrTryRefresh,
   withUnauthorizedRecovery,
 } from '@/lib/auth/session-expired';
 import { formatAmountInput } from '@/lib/money/input-format';
-
-const MAX_DESC_WORDS = 40;
+import {
+  PLATFORM_FEE_PERCENT,
+  VAT_ON_PLATFORM_FEE_PERCENT,
+} from '@/lib/withdrawal-fees';
 
 const createRequestSchema = z.object({
   categoryId: z.string().min(1, 'Please select a category'),
@@ -51,8 +62,8 @@ const createRequestSchema = z.object({
     .string()
     .min(1, 'Please describe your need')
     .refine(
-      (val) => val.trim().split(/\s+/).filter(Boolean).length <= MAX_DESC_WORDS,
-      `Maximum ${MAX_DESC_WORDS} words`
+      (val) => countDescriptionWords(val) <= BEG_MAX_DESCRIPTION_WORDS,
+      `Maximum ${BEG_MAX_DESCRIPTION_WORDS} words`
     ),
   amount: z
     .string()
@@ -111,10 +122,6 @@ function buildTrustLimitMessage(progress: TrustProgress | null): string {
   return 'Build trust by verifying your identity and helping others.';
 }
 
-function countWords(text: string): number {
-  return text.trim().split(/\s+/).filter(Boolean).length;
-}
-
 export default function CreateScreen() {
   const { user, signOut } = useCurrentUser();
   const anonymousModeEnabled = user?.profile?.isAnonymous ?? false;
@@ -128,6 +135,7 @@ export default function CreateScreen() {
   const [trustProgressLoading, setTrustProgressLoading] = useState(false);
   const [confirmVisible, setConfirmVisible] = useState(false);
   const [pendingSubmit, setPendingSubmit] = useState<CreateRequestFormData | null>(null);
+  const [evidenceFiles, setEvidenceFiles] = useState<EvidenceUploadFile[]>([]);
   const [liveSuccess, setLiveSuccess] = useState<{
     requestId: string;
     amount: number;
@@ -151,7 +159,7 @@ export default function CreateScreen() {
 
   const description = watch('description');
   const amountInput = watch('amount');
-  const wordCount = countWords(description ?? '');
+  const wordCount = countDescriptionWords(description ?? '');
 
   const parsedAmount = useMemo(() => parseAmountInput(amountInput ?? ''), [amountInput]);
   const amountTierError = useMemo(() => {
@@ -184,6 +192,37 @@ export default function CreateScreen() {
       setValue('showName', false, { shouldDirty: true, shouldValidate: true });
     }
   }, [anonymousModeEnabled, setValue]);
+
+  const pickEvidencePhoto = async () => {
+    const proceed = await ensurePermissionRationale('photos');
+    if (!proceed) return;
+
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Permission needed', 'Allow photo access to attach evidence.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: false,
+      quality: 0.85,
+    });
+
+    if (result.canceled || !result.assets[0]) return;
+    const asset = result.assets[0];
+    const nextFile: EvidenceUploadFile = {
+      uri: asset.uri,
+      name: asset.fileName || `beg-evidence-${Date.now()}.jpg`,
+      type: asset.mimeType || 'image/jpeg',
+      file: asset.file,
+    };
+    setEvidenceFiles((prev) => [...prev, nextFile]);
+  };
+
+  const removeEvidenceFile = (index: number) => {
+    setEvidenceFiles((prev) => prev.filter((_, i) => i !== index));
+  };
 
   const onContinue = async (data: CreateRequestFormData) => {
     if (isSubmitting) return;
@@ -225,20 +264,40 @@ export default function CreateScreen() {
 
     setIsSubmitting(true);
     try {
-      const { beg } = await withUnauthorizedRecovery(signOut, (token) =>
-        createBeg(token, {
+      const { beg, evidenceUploadFailed } = await withUnauthorizedRecovery(signOut, async (token) => {
+        const created = await createBeg(token, {
           description: descriptionForApi,
           category: uiCategoryToApiCategory(data.categoryId),
           amountRequested,
           expiryHours,
           isAnonymous: !data.showName,
           mediaType: 'text',
-        })
-      );
+        });
+
+        let evidenceUploadFailed = false;
+        if (evidenceFiles.length > 0) {
+          for (const file of evidenceFiles) {
+            try {
+              await uploadBegEvidence(token, created.beg.id, file);
+            } catch {
+              evidenceUploadFailed = true;
+            }
+          }
+        }
+
+        return { ...created, evidenceUploadFailed };
+      });
 
       const categoryMeta = REQUEST_CATEGORIES.find((c) => c.id === data.categoryId);
       const expiryHoursLabel =
         EXPIRY_OPTIONS.find((o) => o.value === data.expiryHours)?.label ?? '';
+
+      if (evidenceUploadFailed) {
+        Alert.alert(
+          'Some evidence not uploaded',
+          'Your request was created, but one or more evidence photos could not be uploaded. You can add them from the request detail screen.'
+        );
+      }
 
       setConfirmVisible(false);
       setPendingSubmit(null);
@@ -250,7 +309,13 @@ export default function CreateScreen() {
         expiryLine: `Expires in ${expiryHoursLabel}`,
       });
     } catch (e) {
-      Alert.alert('Could not submit', formatPlizApiErrorForUser(e));
+      const message = formatPlizApiErrorForUser(e);
+      Alert.alert(
+        'Could not submit',
+        message.includes('objectionable content')
+          ? 'Your description includes language that is not allowed on Plz. Please revise it and try again.'
+          : message
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -264,6 +329,7 @@ export default function CreateScreen() {
     setLiveSuccess(null);
     reset(createDefaults);
     setSelectedCategory(null);
+    setEvidenceFiles([]);
   };
 
   const onLiveDismissOrHome = () => {
@@ -361,17 +427,44 @@ export default function CreateScreen() {
             render={({ field: { onChange, onBlur, value } }) => (
               <FormTextArea
                 label="Briefly describe your need"
-                placeholder="Be specific but brief (max 40 words)."
+                placeholder={`Be specific but brief (max ${BEG_MAX_DESCRIPTION_WORDS} words).`}
                 value={value}
-                onChangeText={onChange}
+                onChangeText={(text) => onChange(clampBegDescriptionWhileTyping(text))}
                 onBlur={onBlur}
-                wordCount={{ current: wordCount, max: MAX_DESC_WORDS }}
+                wordCount={{ current: wordCount, max: BEG_MAX_DESCRIPTION_WORDS }}
                 error={errors.description?.message}
-                hint="No title on the feed — only this description. No editing after submission."
-                maxLength={300}
+                hint="No title on the feed — only this description. Up to 40 words or 300 characters. No editing after submission."
               />
             )}
           />
+
+          <View style={styles.evidenceCard}>
+            <View style={styles.evidenceCopy}>
+              <Text style={styles.evidenceTitle}>Evidence photos</Text>
+              <Text style={styles.evidenceHint}>
+                Add photos that support your request. You can attach more than one.
+              </Text>
+              {evidenceFiles.map((file, index) => (
+                <View key={`${file.name}-${index}`} style={styles.evidenceFileRow}>
+                  <Text style={styles.evidenceFile} numberOfLines={1}>
+                    {file.name}
+                  </Text>
+                  <Pressable onPress={() => removeEvidenceFile(index)}>
+                    <Ionicons name="close-circle" size={18} color="#9CA3AF" />
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+            <Pressable
+              style={styles.evidenceButton}
+              onPress={() => void pickEvidencePhoto()}
+              accessibilityRole="button"
+              accessibilityLabel="Attach evidence photo"
+            >
+              <Ionicons name="image-outline" size={18} color="#2E8BEA" />
+              <Text style={styles.evidenceButtonText}>Add photo</Text>
+            </Pressable>
+          </View>
 
           <Controller
             control={control}
@@ -425,7 +518,7 @@ export default function CreateScreen() {
           <View style={styles.platformFeeBox}>
             <Ionicons name="information-circle-outline" size={20} color={COLORS.body} style={styles.platformFeeIcon} />
             <Text style={styles.platformFeeText}>
-              A 5% platform fee applies to successful requests. VAT is 7.5% of that fee.
+              A {PLATFORM_FEE_PERCENT}% platform fee applies to successful requests. VAT is {VAT_ON_PLATFORM_FEE_PERCENT}% of that fee.
             </Text>
           </View>
 
@@ -472,9 +565,12 @@ export default function CreateScreen() {
             disabled={continueDisabled}
           />
 
-          <Text style={styles.disclaimer}>
-            By submitting, you agree that this request is truthful and you accept our community guidelines
-          </Text>
+          <View style={styles.disclaimerRow}>
+            <Text style={styles.disclaimer}>
+              By submitting, you agree that this request is truthful and you accept our{' '}
+            </Text>
+            <LegalDocumentLink kind="terms" label="Terms and Conditions" style={styles.disclaimerLink} />
+          </View>
       </View>
     </Screen>
   );
@@ -547,6 +643,58 @@ const styles = StyleSheet.create({
     color: COLORS.heading,
     fontWeight: '600',
   },
+  evidenceCard: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 18,
+    backgroundColor: '#F9FAFB',
+  },
+  evidenceCopy: {
+    flex: 1,
+  },
+  evidenceTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: COLORS.heading,
+  },
+  evidenceHint: {
+    fontSize: 12,
+    color: COLORS.body,
+    marginTop: 3,
+  },
+  evidenceFile: {
+    fontSize: 12,
+    color: COLORS.brandBlue,
+    flex: 1,
+  },
+  evidenceFileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 6,
+  },
+  evidenceButton: {
+    minWidth: 82,
+    height: 40,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    backgroundColor: '#EFF6FF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  evidenceButtonText: {
+    color: COLORS.brandBlue,
+    fontWeight: '700',
+    fontSize: 13,
+  },
   platformFeeBox: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -596,11 +744,20 @@ const styles = StyleSheet.create({
     color: COLORS.body,
     marginTop: 2,
   },
+  disclaimerRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 16,
+  },
   disclaimer: {
     fontSize: 12,
     color: COLORS.body,
     textAlign: 'center',
-    marginTop: 16,
     lineHeight: 18,
+  },
+  disclaimerLink: {
+    fontSize: 12,
   },
 });

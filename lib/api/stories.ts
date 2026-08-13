@@ -26,6 +26,13 @@ export type StoriesFeedResult = {
   pagination?: { page: number; limit: number; total: number; pages: number };
 };
 
+export type StoryStatus = {
+  hasUnseenStories: boolean;
+  latestStoryId: string | null;
+  latestStoryCreatedAt: string | null;
+  lastSeenStoryAt: string | null;
+};
+
 /**
  * GET /api/stories — approved community stories (Bearer).
  */
@@ -134,5 +141,75 @@ export async function createStory(
   return {
     story: data.data.story,
     message: (data.message ?? 'Story submitted.').trim() || 'Story submitted.',
+  };
+}
+
+export async function getStoryStatus(accessToken: string): Promise<StoryStatus> {
+  const res = await fetch(apiUrl('/api/stories/status'), {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    credentials: isWebAuthEnvironment() ? 'include' : 'omit',
+  });
+
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    throw new PlizApiError('Invalid response from server', res.status);
+  }
+
+  const data = json as {
+    success?: boolean;
+    message?: string;
+    data?: Partial<StoryStatus>;
+  };
+
+  if (!res.ok || data.success !== true || !data.data) {
+    throw apiFailureFromResponseJson(json, res.status);
+  }
+
+  return {
+    hasUnseenStories: Boolean(data.data.hasUnseenStories),
+    latestStoryId: data.data.latestStoryId ?? null,
+    latestStoryCreatedAt: data.data.latestStoryCreatedAt ?? null,
+    lastSeenStoryAt: data.data.lastSeenStoryAt ?? null,
+  };
+}
+
+export async function markStoriesSeen(accessToken: string): Promise<StoryStatus> {
+  const res = await fetch(apiUrl('/api/stories/mark-seen'), {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    credentials: isWebAuthEnvironment() ? 'include' : 'omit',
+  });
+
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    throw new PlizApiError('Invalid response from server', res.status);
+  }
+
+  const data = json as {
+    success?: boolean;
+    message?: string;
+    data?: Partial<StoryStatus>;
+  };
+
+  if (!res.ok || data.success !== true || !data.data) {
+    throw apiFailureFromResponseJson(json, res.status);
+  }
+
+  return {
+    hasUnseenStories: Boolean(data.data.hasUnseenStories),
+    latestStoryId: data.data.latestStoryId ?? null,
+    latestStoryCreatedAt: data.data.latestStoryCreatedAt ?? null,
+    lastSeenStoryAt: data.data.lastSeenStoryAt ?? null,
   };
 }

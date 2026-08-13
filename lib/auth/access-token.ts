@@ -8,7 +8,7 @@ const REFRESH_KEY = 'pliz_refresh_token';
 /**
  * Web: access token in memory + sessionStorage so a full reload (or payment return URL) still has
  * a Bearer until refresh runs. Refresh token stays in an httpOnly cookie from the API (not JS).
- * sessionStorage clears when the tab closes.
+ * New tabs rely on cookie-based refresh (COOKIE_DOMAIN on the API), not shared access storage.
  */
 let webAccessToken: string | null = null;
 let webRefreshToken: string | null = null;

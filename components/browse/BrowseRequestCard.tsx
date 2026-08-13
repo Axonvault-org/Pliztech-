@@ -1,11 +1,19 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Link } from 'expo-router';
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Link, router } from 'expo-router';
+import { Pressable, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { Text } from '@/components/Text';
 
 import { ProgressBar } from '@/components/ProgressBar';
+import { BegEvidenceButton } from '@/components/evidence/BegEvidenceButton';
+import { BegCardDonateButton } from '@/components/request/BegCardDonateButton';
+import { RequestCardOverflowMenu } from '@/components/request/RequestCardOverflowMenu';
+import type { RequestCardSafetyProps } from '@/components/request/request-card-safety';
 import { RequesterAvatar } from '@/components/request/RequesterAvatar';
+import { VerifiedByPlzBadge } from '@/components/safety/VerifiedByPlzBadge';
+import { VerificationStatusDot } from '@/components/safety/VerificationStatusDot';
+import { VERIFIED_BY_PLZ_BADGE } from '@/lib/api/beg';
+import { useCurrentUser } from '@/contexts/CurrentUserContext';
 import { REQUEST_CATEGORIES } from '@/constants/categories';
 
 import type { BrowseRequest } from '@/lib/types/home';
@@ -27,9 +35,11 @@ function getCategoryIcon(categoryId: string) {
 export interface BrowseRequestCardProps {
   request: BrowseRequest;
   onPress?: () => void;
+  safetyMenu?: RequestCardSafetyProps;
 }
 
-export function BrowseRequestCard({ request, onPress }: BrowseRequestCardProps) {
+export function BrowseRequestCard({ request, onPress, safetyMenu }: BrowseRequestCardProps) {
+  const { user } = useCurrentUser();
   const {
     id,
     name,
@@ -44,11 +54,20 @@ export function BrowseRequestCard({ request, onPress }: BrowseRequestCardProps) 
     raised,
     goal,
     percent,
+    evidenceCount,
+    ownerUserId,
+    canDonate,
+    ownerKycVerified,
   } = request;
 
   const categoryIcon = getCategoryIcon(categoryId);
   const href = { pathname: '/(tabs)/request/[id]' as const, params: { id } };
   const isAnonymous = name.toLowerCase() === 'anonymous';
+  const isOwner = Boolean(user?.id && ownerUserId && user.id === ownerUserId);
+  const showActionButton = isOwner || Boolean(canDonate);
+  const isVerifiedRequest = badge === VERIFIED_BY_PLZ_BADGE;
+  const isOwnerKycVerified = Boolean(ownerKycVerified);
+  const showOverflowMenu = Boolean(safetyMenu && !isOwner && ownerUserId);
 
   return (
     <View style={styles.card}>
@@ -62,32 +81,54 @@ export function BrowseRequestCard({ request, onPress }: BrowseRequestCardProps) 
           previewPhoto
           previewLabel={name}
         />
-        <Link href={href} asChild push>
-          <TouchableOpacity
-            activeOpacity={0.7}
-            style={styles.topRowLink}
+        <View style={[styles.topRowMiddle, showOverflowMenu && styles.topRowMiddleWithMenu]}>
+          <Pressable
+            style={({ pressed }) => [styles.topRowLink, pressed && styles.topRowLinkPressed]}
+            onPress={() => {
+              onPress?.();
+              router.push(href);
+            }}
             accessibilityRole="button"
             accessibilityLabel={`Request by ${name}`}
-            onPress={onPress}
           >
-            <View style={styles.nameWrap}>
+            <View style={styles.headerCopy}>
               <View style={styles.nameRow}>
                 <Text style={styles.name} numberOfLines={1}>
                   {name}
                 </Text>
-                {badge ? (
+                <VerificationStatusDot verified={isOwnerKycVerified} compact />
+              </View>
+              <View style={styles.metaRow}>
+                {isVerifiedRequest ? (
+                  <VerifiedByPlzBadge compact />
+                ) : badge ? (
                   <View style={styles.badge}>
                     <Text style={styles.badgeText}>{badge}</Text>
                   </View>
-                ) : null}
+                ) : (
+                  <View style={styles.metaSpacer} />
+                )}
+                <View style={styles.timeLeft}>
+                  <Ionicons name="time-outline" size={14} color={BODY} />
+                  <Text style={styles.timeLeftText} numberOfLines={1}>
+                    {timeLeft}
+                  </Text>
+                </View>
               </View>
             </View>
-            <View style={styles.timeLeft}>
-              <Ionicons name="time-outline" size={14} color={BODY} />
-              <Text style={styles.timeLeftText}>{timeLeft}</Text>
-            </View>
-          </TouchableOpacity>
-        </Link>
+          </Pressable>
+        </View>
+        {showOverflowMenu && safetyMenu ? (
+          <RequestCardOverflowMenu
+            target={safetyMenu.target}
+            isHidden={safetyMenu.isHidden}
+            isBlocked={safetyMenu.isBlocked}
+            showFlag={safetyMenu.showFlag}
+            onToggleHidden={safetyMenu.onToggleHidden}
+            onToggleBlocked={safetyMenu.onToggleBlocked}
+            onFlag={safetyMenu.onFlag}
+          />
+        ) : null}
       </View>
 
       <Link href={href} asChild push>
@@ -119,6 +160,25 @@ export function BrowseRequestCard({ request, onPress }: BrowseRequestCardProps) 
           <ProgressBar percent={percent} trackColor="#EEEEEE" fillColor="#2196F3" />
         </TouchableOpacity>
       </Link>
+
+      {(evidenceCount && evidenceCount > 0) || showActionButton ? (
+        <View style={styles.actionRow}>
+          <View style={styles.actionLeft}>
+            {evidenceCount && evidenceCount > 0 ? (
+              <BegEvidenceButton begId={id} evidenceCount={evidenceCount} compact />
+            ) : null}
+          </View>
+          {showActionButton ? (
+            <View style={styles.actionRight}>
+              <BegCardDonateButton
+                begId={id}
+                recipientName={name}
+                variant={isOwner ? 'view' : 'donate'}
+              />
+            </View>
+          ) : null}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -139,34 +199,53 @@ const styles = StyleSheet.create({
   },
   topRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: 10,
     gap: 12,
   },
-  topRowLink: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  cardBody: {
-    padding: 0,
-  },
-  nameWrap: {
+  topRowMiddle: {
     flex: 1,
     minWidth: 0,
+  },
+  topRowMiddleWithMenu: {
+    paddingRight: 4,
+  },
+  topRowLink: {
+    width: '100%',
+    minWidth: 0,
+  },
+  topRowLinkPressed: {
+    opacity: 0.7,
+  },
+  headerCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
   },
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    minWidth: 0,
+  },
+  cardBody: {
+    padding: 0,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  metaSpacer: {
+    flex: 1,
   },
   name: {
+    flexShrink: 1,
     fontSize: 16,
     fontWeight: '700',
     color: HEADING,
-    flexShrink: 1,
+    minWidth: 0,
   },
   badge: {
     backgroundColor: '#F3F4F6',
@@ -191,6 +270,7 @@ const styles = StyleSheet.create({
   timeLeftText: {
     fontSize: 12,
     color: BODY,
+    flexShrink: 1,
   },
   categoryRow: {
     flexDirection: 'row',
@@ -226,5 +306,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: ACCENT_BLUE,
+  },
+  actionRow: {
+    marginTop: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  actionLeft: {
+    flex: 1,
+    minWidth: 0,
+  },
+  actionRight: {
+    flexShrink: 0,
   },
 });

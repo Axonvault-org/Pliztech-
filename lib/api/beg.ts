@@ -1,13 +1,29 @@
 import { apiUrl } from '@/constants/api';
 import { REQUEST_CATEGORIES } from '@/constants/categories';
-import { avatarColorFromSeed } from '@/contexts/CurrentUserContext';
-import type { ActivityRequest, ActivityRequestStatus } from '@/lib/types/activity';
+import {
+  begAcceptsDonations,
+  isBegPastOrClosedForDonorNav,
+  mapBegStatusToActivityStatus,
+} from '@/lib/beg/beg-status';
+import { clampBegDescription } from '@/lib/beg/description-limits';
+import { avatarColorFromSeed } from '@/lib/user/avatar-color';
+import type { ActivityRequest } from '@/lib/types/activity';
 import type { BrowseRequest, TrendingRequest } from '@/lib/types/home';
 import type { RequestDetail } from '@/lib/types/requests';
+import { isWebAuthEnvironment } from '@/lib/auth/web-auth';
 
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { PlizApiError } from './types';
+import { apiFailureFromResponseJson, PlizApiError } from './types';
+
+export const VERIFIED_BY_PLZ_BADGE = 'Verified Request';
+
+/** Re-exported for callers that import donation helpers from the beg API module. */
+export { isBegPastOrClosedForDonorNav } from '@/lib/beg/beg-status';
+
+export function verifiedBadgeForBeg(approved: boolean | undefined): string | undefined {
+  return approved === true ? VERIFIED_BY_PLZ_BADGE : undefined;
+}
 
 /** Category enum expected by POST /api/begs (express-validator). */
 export type BegApiCategory =
@@ -100,10 +116,7 @@ export function uiCategoryToApiCategory(uiCategoryId: string): BegApiCategory {
 
 /** Backend: max 40 words, 300 characters (BegService). */
 export function clampBegDescriptionForApi(description: string): string {
-  const trimmed = description.trim().replace(/\s+/g, ' ');
-  const words = trimmed.split(' ').filter(Boolean).slice(0, 40);
-  const joined = words.join(' ');
-  return joined.length > 300 ? joined.slice(0, 300) : joined;
+  return clampBegDescription(description);
 }
 
 /**
@@ -305,6 +318,8 @@ export type BegFeedItem = {
   ownerAvatarUrl?: string;
   /** Legacy/alternate API key */
   owner_avatar_url?: string;
+  /** Owner completed KYC; shown even when the request is anonymous. */
+  ownerKycVerified?: boolean;
   /** Legacy — newer begs may omit title */
   title?: string;
   description: string | null;
@@ -317,8 +332,11 @@ export type BegFeedItem = {
   amountRequested: number;
   amountRaised: number;
   percentFunded?: number;
+  evidenceCount?: number;
   status: string;
   approved: boolean;
+  isWithdrawn?: boolean;
+  withdrawnAt?: string | null;
   expiresAt: string;
   createdAt: string;
   timeRemaining?: string;
@@ -357,6 +375,7 @@ export async function getBegsFeed(options?: {
   page?: number;
   limit?: number;
   category?: BegApiCategory;
+  accessToken?: string | null;
 }): Promise<GetBegsFeedResult> {
   const page = options?.page ?? 1;
   const limit = options?.limit ?? 50;
@@ -367,9 +386,14 @@ export async function getBegsFeed(options?: {
     params.set('category', options.category);
   }
 
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (options?.accessToken?.trim()) {
+    headers.Authorization = `Bearer ${options.accessToken.trim()}`;
+  }
+
   const res = await fetch(`${apiUrl('/api/begs')}?${params.toString()}`, {
     method: 'GET',
-    headers: { Accept: 'application/json' },
+    headers,
   });
 
   let json: unknown;
@@ -457,33 +481,6 @@ export async function getMyBegs(
       pages: p?.pages ?? 1,
     },
   };
-}
-
-function mapBegStatusToActivityStatus(beg: BegFeedItem): ActivityRequestStatus {
-  const s = beg.status;
-  if (s === 'funded') return 'funded';
-  if (s === 'cancelled') return 'cancelled';
-  if (s === 'expired') return 'expired';
-  if (s === 'rejected') return 'cancelled';
-  if (!beg.approved) return 'pending';
-
-  if (s === 'flagged') return 'active';
-
-  const goal = Math.round(Number(beg.amountRequested) || 0);
-  const raised = Math.round(Number(beg.amountRaised) || 0);
-  if (goal > 0 && raised >= goal) return 'funded';
-  if (beg.timeRemaining === 'Expired') return 'expired';
-
-  return 'active';
-}
-
-/**
- * After a donation, use Activity “past request” overlay instead of the live request screen
- * when the beg is no longer active (fully funded, expired, cancelled, etc.).
- */
-export function isBegPastOrClosedForDonorNav(beg: BegFeedItem): boolean {
-  const st = mapBegStatusToActivityStatus(beg);
-  return st !== 'active' && st !== 'pending';
 }
 
 function categoryIconForBeg(beg: BegFeedItem): keyof typeof Ionicons.glyphMap {
@@ -608,8 +605,13 @@ export function feedBegToBrowseRequest(beg: BegFeedItem): BrowseRequest {
     raised,
     goal,
     percent: Math.min(100, Math.max(0, pct)),
+    evidenceCount: Math.max(0, Number(beg.evidenceCount) || 0),
     createdAt: beg.createdAt,
     expiresAt: beg.expiresAt,
+    ownerUserId: beg.userId,
+    canDonate: begAcceptsDonations(beg),
+    badge: verifiedBadgeForBeg(beg.approved),
+    ownerKycVerified: Boolean(beg.ownerKycVerified),
   };
 }
 
@@ -655,7 +657,12 @@ export function feedBegToTrendingRequest(beg: BegFeedItem): TrendingRequest {
     raised,
     goal,
     percent: Math.min(100, Math.max(0, pct)),
+    evidenceCount: Math.max(0, Number(beg.evidenceCount) || 0),
     createdAt: beg.createdAt,
+    ownerUserId: beg.userId,
+    canDonate: begAcceptsDonations(beg),
+    badge: verifiedBadgeForBeg(beg.approved),
+    ownerKycVerified: Boolean(beg.ownerKycVerified),
   };
 }
 
@@ -667,11 +674,13 @@ const DEFAULT_TRENDING_COUNT = 5;
  * funding % (then amount raised, then recency).
  */
 export async function getTrendingBegs(
-  displayLimit = DEFAULT_TRENDING_COUNT
+  displayLimit = DEFAULT_TRENDING_COUNT,
+  accessToken?: string | null
 ): Promise<TrendingRequest[]> {
   const { begs } = await getBegsFeed({
     page: 1,
     limit: TRENDING_SOURCE_LIMIT,
+    accessToken,
   });
   const mapped = begs.map(feedBegToTrendingRequest);
   mapped.sort((a, b) => {
@@ -788,5 +797,105 @@ export function begFeedItemToRequestDetail(beg: BegFeedItem): RequestDetail {
     approved: beg.approved,
     canDonate,
     viewerDonation: beg.viewerDonation ?? null,
+    begStatus: beg.status,
+    isWithdrawn: Boolean(beg.isWithdrawn),
+    badge: verifiedBadgeForBeg(beg.approved),
+    ownerKycVerified: Boolean(beg.ownerKycVerified),
+  };
+}
+
+export type HiddenBegRow = {
+  id: string;
+  description: string;
+  status: string;
+  amountRequested: number;
+  amountRaised: number;
+  category: { name: string; icon: string | null };
+  hiddenAt: string;
+};
+
+export type GetHiddenBegsResult = {
+  hiddenBegs: HiddenBegRow[];
+  total: number;
+  pages: number;
+};
+
+export async function hideBeg(accessToken: string, begId: string): Promise<void> {
+  const res = await fetch(apiUrl(`/api/begs/${encodeURIComponent(begId)}/hide`), {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    credentials: isWebAuthEnvironment() ? 'include' : 'omit',
+  });
+
+  let json: unknown = null;
+  try {
+    json = await res.json();
+  } catch {
+    if (!res.ok) throw new PlizApiError('Invalid response from server', res.status);
+  }
+
+  const data = json as { success?: boolean } | null;
+  if (!res.ok || data?.success === false) {
+    throw apiFailureFromResponseJson(json, res.status);
+  }
+}
+
+export async function unhideBeg(accessToken: string, begId: string): Promise<void> {
+  const res = await fetch(apiUrl(`/api/begs/${encodeURIComponent(begId)}/hide`), {
+    method: 'DELETE',
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    credentials: isWebAuthEnvironment() ? 'include' : 'omit',
+  });
+
+  let json: unknown = null;
+  try {
+    json = await res.json();
+  } catch {
+    if (!res.ok) throw new PlizApiError('Invalid response from server', res.status);
+  }
+
+  const data = json as { success?: boolean } | null;
+  if (!res.ok || data?.success === false) {
+    throw apiFailureFromResponseJson(json, res.status);
+  }
+}
+
+export async function getHiddenBegs(
+  accessToken: string,
+  page = 1,
+  limit = 50
+): Promise<GetHiddenBegsResult> {
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  const res = await fetch(apiUrl(`/api/begs/hidden?${params}`), {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    credentials: isWebAuthEnvironment() ? 'include' : 'omit',
+  });
+
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    throw new PlizApiError('Invalid response from server', res.status);
+  }
+
+  const data = json as { success?: boolean; data?: GetHiddenBegsResult };
+  if (!res.ok || data.success !== true || !data.data) {
+    throw apiFailureFromResponseJson(json, res.status);
+  }
+
+  return {
+    hiddenBegs: Array.isArray(data.data.hiddenBegs) ? data.data.hiddenBegs : [],
+    total: data.data.total ?? 0,
+    pages: data.data.pages ?? 1,
   };
 }

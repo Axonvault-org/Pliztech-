@@ -5,10 +5,16 @@ const CALLBACK_PATH = '/payment/callback';
 
 /** HTTPS callback for web payment redirects (must match backend FRONTEND_URL). */
 export function getPaymentWebCallbackUrl(): string {
+  // Prefer the live browser origin so production web works even when the static
+  // export was built without EXPO_PUBLIC_FRONTEND_URL (e.g. Vercel env missing).
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.origin) {
+    return `${window.location.origin.replace(/\/$/, '')}${CALLBACK_PATH}`;
+  }
+
   const base = (
     process.env.EXPO_PUBLIC_FRONTEND_URL?.trim() ||
     process.env.EXPO_PUBLIC_WEB_APP_URL?.trim() ||
-    'http://localhost:8081'
+    (__DEV__ ? 'http://localhost:8081' : 'https://app.plz.ng')
   ).replace(/\/$/, '');
   return `${base}${CALLBACK_PATH}`;
 }
@@ -43,6 +49,14 @@ export function transactionIdFromPaymentRedirectUrl(url: string): string | null 
   const id = parsed.queryParams?.transaction_id ?? parsed.queryParams?.transactionId;
   if (typeof id === 'string' && id.trim()) return id.trim();
   if (Array.isArray(id) && id[0]) return String(id[0]).trim();
+  return null;
+}
+
+export function statusFromPaymentRedirectUrl(url: string): string | null {
+  const parsed = Linking.parse(url);
+  const status = parsed.queryParams?.status;
+  if (typeof status === 'string' && status.trim()) return status.trim().toLowerCase();
+  if (Array.isArray(status) && status[0]) return String(status[0]).trim().toLowerCase();
   return null;
 }
 

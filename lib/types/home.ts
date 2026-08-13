@@ -8,12 +8,20 @@ export type TrendingRequest = {
   timeAgo: string;
   /** Time until request expires (from API `expiresAt`). */
   expiresInLabel?: string;
+  /** e.g. "Verified Request" when admin-approved */
+  badge?: string;
+  /** Owner completed KYC (blue dot); false = yellow dot. */
+  ownerKycVerified?: boolean;
   text: string;
   raised: number;
   goal: number;
   percent: number;
+  evidenceCount?: number;
   /** ISO date for client-side sort (API). */
   createdAt?: string;
+  ownerUserId?: string;
+  /** When true, show the quick donate CTA on the card. */
+  canDonate?: boolean;
 };
 
 /** Home “My recent contributions” row (API-mapped). */
@@ -37,11 +45,16 @@ export type BrowseRequest = {
   categoryId: string;
   categoryLabel: string;
   badge?: string;
+  /** Owner completed KYC (blue dot); false = yellow dot. */
+  ownerKycVerified?: boolean;
   text: string;
   raised: number;
   goal: number;
   percent: number;
+  evidenceCount?: number;
   /** ISO timestamps when mapped from API (for client-side sort). */
   createdAt?: string;
   expiresAt?: string;
+  ownerUserId?: string;
+  canDonate?: boolean;
 };

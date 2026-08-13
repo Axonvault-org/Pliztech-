@@ -14,6 +14,7 @@ import { Text } from '@/components/Text';
 
 import { AppHeaderTitleRow } from '@/components/layout/AppHeaderTitleRow';
 import { Screen } from '@/components/Screen';
+import { StorySubmittedModal } from '@/components/story/StorySubmittedModal';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
 import { createStory } from '@/lib/api/stories';
 import { updateProfile } from '@/lib/api/profile';
@@ -53,6 +54,7 @@ export default function ShareStoryScreen() {
 
   const [anonymous, setAnonymous] = useState(user?.profile?.isAnonymous ?? false);
   const [submitting, setSubmitting] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const trimmed = body.trim();
   const words = countWords(trimmed);
@@ -70,15 +72,15 @@ export default function ShareStoryScreen() {
           await refreshUser();
         }
         const { message } = await createStory(token, { content: trimmed });
-        Alert.alert('Story submitted', message, [
-          {
-            text: 'Go to home',
-            onPress: () => router.replace('/(tabs)/(main)' as Href),
-          },
-        ]);
+        setSuccessMessage(message);
       });
     } catch (e) {
-      Alert.alert('Could not submit', formatPlizApiErrorForUser(e));
+      Alert.alert(
+        'Could not submit',
+        formatPlizApiErrorForUser(e).includes('objectionable content')
+          ? 'Your story includes language that is not allowed on Plz. Please revise it and try again.'
+          : formatPlizApiErrorForUser(e)
+      );
     } finally {
       setSubmitting(false);
     }
@@ -139,6 +141,18 @@ export default function ShareStoryScreen() {
           <Text style={styles.submitText}>Submit story</Text>
         )}
       </Pressable>
+      <StorySubmittedModal
+        visible={successMessage != null}
+        message={successMessage ?? undefined}
+        onDone={() => {
+          setSuccessMessage(null);
+          router.replace('/(tabs)/(main)' as Href);
+        }}
+        onViewStories={() => {
+          setSuccessMessage(null);
+          router.replace('/(tabs)/stories-feed' as Href);
+        }}
+      />
     </Screen>
   );
 }

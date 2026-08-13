@@ -1,10 +1,18 @@
-import { Link } from 'expo-router';
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Link, router } from 'expo-router';
+import { Pressable, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { Text } from '@/components/Text';
 
 import { ProgressBar } from '@/components/ProgressBar';
+import { BegEvidenceButton } from '@/components/evidence/BegEvidenceButton';
+import { BegCardDonateButton } from '@/components/request/BegCardDonateButton';
+import { RequestCardOverflowMenu } from '@/components/request/RequestCardOverflowMenu';
+import type { RequestCardSafetyProps } from '@/components/request/request-card-safety';
 import { RequesterAvatar } from '@/components/request/RequesterAvatar';
+import { VerifiedByPlzBadge } from '@/components/safety/VerifiedByPlzBadge';
+import { VerificationStatusDot } from '@/components/safety/VerificationStatusDot';
+import { VERIFIED_BY_PLZ_BADGE } from '@/lib/api/beg';
+import { useCurrentUser } from '@/contexts/CurrentUserContext';
 
 import type { TrendingRequest } from '@/lib/types/home';
 
@@ -19,13 +27,16 @@ function formatNaira(amount: number) {
 
 export interface RequestCardProps {
   request: TrendingRequest;
+  /** Inline hide / block / flag menu for this card. */
+  safetyMenu?: RequestCardSafetyProps;
 }
 
 /**
  * Avatar sits outside the navigation Link so tapping it opens photo preview only.
  * Card body uses Link asChild + TouchableOpacity for reliable iOS navigation.
  */
-export function RequestCard({ request }: RequestCardProps) {
+export function RequestCard({ request, safetyMenu }: RequestCardProps) {
+  const { user } = useCurrentUser();
   const {
     id,
     name,
@@ -38,10 +49,20 @@ export function RequestCard({ request }: RequestCardProps) {
     raised,
     goal,
     percent,
+    evidenceCount,
+    ownerUserId,
+    canDonate,
+    badge,
+    ownerKycVerified,
   } = request;
 
   const href = { pathname: '/(tabs)/request/[id]' as const, params: { id } };
   const isAnonymous = name.toLowerCase() === 'anonymous';
+  const isOwner = Boolean(user?.id && ownerUserId && user.id === ownerUserId);
+  const showActionButton = isOwner || Boolean(canDonate);
+  const isVerifiedRequest = badge === VERIFIED_BY_PLZ_BADGE;
+  const isOwnerKycVerified = Boolean(ownerKycVerified);
+  const showOverflowMenu = Boolean(safetyMenu && !isOwner && ownerUserId);
 
   return (
     <View style={styles.cardWrapper}>
@@ -55,21 +76,44 @@ export function RequestCard({ request }: RequestCardProps) {
           previewPhoto
           previewLabel={name}
         />
-        <Link href={href} asChild push>
-          <TouchableOpacity
-            activeOpacity={0.7}
-            style={styles.topRowLink}
+        <View style={[styles.topRowMiddle, showOverflowMenu && styles.topRowMiddleWithMenu]}>
+          <Pressable
+            style={({ pressed }) => [styles.topRowLink, pressed && styles.topRowLinkPressed]}
+            onPress={() => router.push(href)}
             accessibilityRole="button"
             accessibilityLabel={`Request by ${name}`}
           >
-            <Text style={styles.name} numberOfLines={1}>
-              {name}
-            </Text>
-            <Text style={styles.timeAgo}>
-              {expiresInLabel ? `${timeAgo} · ${expiresInLabel}` : timeAgo}
-            </Text>
-          </TouchableOpacity>
-        </Link>
+            <View style={styles.headerCopy}>
+              <View style={styles.nameRow}>
+                <Text style={styles.name} numberOfLines={1}>
+                  {name}
+                </Text>
+                <VerificationStatusDot verified={isOwnerKycVerified} compact />
+              </View>
+              <View style={styles.metaRow}>
+                {isVerifiedRequest ? (
+                  <VerifiedByPlzBadge compact />
+                ) : (
+                  <View style={styles.metaSpacer} />
+                )}
+                <Text style={styles.timeAgo} numberOfLines={1}>
+                  {expiresInLabel ? `${timeAgo} · ${expiresInLabel}` : timeAgo}
+                </Text>
+              </View>
+            </View>
+          </Pressable>
+        </View>
+        {showOverflowMenu && safetyMenu ? (
+          <RequestCardOverflowMenu
+            target={safetyMenu.target}
+            isHidden={safetyMenu.isHidden}
+            isBlocked={safetyMenu.isBlocked}
+            showFlag={safetyMenu.showFlag}
+            onToggleHidden={safetyMenu.onToggleHidden}
+            onToggleBlocked={safetyMenu.onToggleBlocked}
+            onFlag={safetyMenu.onFlag}
+          />
+        ) : null}
       </View>
 
       <Link href={href} asChild push>
@@ -93,6 +137,25 @@ export function RequestCard({ request }: RequestCardProps) {
           <ProgressBar percent={percent} trackColor="#EEEEEE" fillColor="#2196F3" />
         </TouchableOpacity>
       </Link>
+
+      {(evidenceCount && evidenceCount > 0) || showActionButton ? (
+        <View style={styles.actionRow}>
+          <View style={styles.actionLeft}>
+            {evidenceCount && evidenceCount > 0 ? (
+              <BegEvidenceButton begId={id} evidenceCount={evidenceCount} compact />
+            ) : null}
+          </View>
+          {showActionButton ? (
+            <View style={styles.actionRight}>
+              <BegCardDonateButton
+                begId={id}
+                recipientName={name}
+                variant={isOwner ? 'view' : 'donate'}
+              />
+            </View>
+          ) : null}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -104,7 +167,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E5E5E5',
     backgroundColor: '#FFFFFF',
-    overflow: 'hidden',
+    overflow: 'visible',
     padding: 24,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
@@ -114,28 +177,59 @@ const styles = StyleSheet.create({
   },
   topRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: 10,
     gap: 12,
   },
-  topRowLink: {
+  topRowMiddle: {
     flex: 1,
+    minWidth: 0,
+  },
+  topRowMiddleWithMenu: {
+    paddingRight: 4,
+  },
+  topRowLink: {
+    width: '100%',
+    minWidth: 0,
+  },
+  topRowLinkPressed: {
+    opacity: 0.7,
+  },
+  headerCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
+  },
+  nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 8,
+    minWidth: 0,
   },
   cardBody: {
     padding: 0,
   },
   name: {
-    flex: 1,
+    flexShrink: 1,
     fontSize: 16,
     fontWeight: '700',
     color: HEADING,
+    minWidth: 0,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  metaSpacer: {
+    flex: 1,
   },
   timeAgo: {
-    fontSize: 13,
+    flexShrink: 0,
+    fontSize: 12,
     color: BODY,
+    textAlign: 'right',
   },
   text: {
     fontSize: 14,
@@ -157,5 +251,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: ACCENT_BLUE,
+  },
+  actionRow: {
+    marginTop: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  actionLeft: {
+    flex: 1,
+    minWidth: 0,
+  },
+  actionRight: {
+    flexShrink: 0,
   },
 });

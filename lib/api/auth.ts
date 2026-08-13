@@ -191,6 +191,43 @@ export async function submitPasswordReset(body: ResetPasswordBody): Promise<stri
   );
 }
 
+/**
+ * POST /api/auth/resend-verification — send a fresh verification email.
+ */
+export async function resendVerificationEmail(email: string): Promise<string> {
+  const res = await fetch(apiUrl('/api/auth/resend-verification'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({ email: email.trim() }),
+  });
+
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    throw new PlizApiError('Invalid response from server', res.status);
+  }
+
+  const data = json as {
+    success?: boolean;
+    message?: string;
+    errors?: { field: string; message: string }[];
+  };
+
+  if (!res.ok || data.success !== true) {
+    throw new PlizApiError(
+      data.message ?? `Request failed (${res.status})`,
+      res.status,
+      Array.isArray(data.errors) ? data.errors : []
+    );
+  }
+
+  return data.message ?? 'Verification email sent. Please check your inbox.';
+}
+
 /** Must match POST /api/auth/change-password validation. */
 export type ChangePasswordBody = {
   currentPassword: string;
@@ -380,10 +417,12 @@ export async function loginWithApple(body: {
 
 export type RefreshAccessTokenResult = {
   accessToken: string;
+  /** Rotated refresh JWT; required on native, omitted when web uses httpOnly cookie. */
+  refreshToken?: string;
 };
 
 /**
- * POST /api/auth/refresh-token — new access JWT (refresh token unchanged).
+ * POST /api/auth/refresh-token — new access JWT and rotated refresh token.
  * On web, omit `refreshToken` to use the httpOnly cookie set at login.
  */
 export async function refreshAccessToken(
@@ -424,7 +463,7 @@ export async function refreshAccessToken(
   const data = json as {
     success?: boolean;
     message?: string;
-    data?: { accessToken?: string };
+    data?: { accessToken?: string; refreshToken?: string };
   };
 
   if (!res.ok || data.success !== true || !data.data?.accessToken) {
@@ -434,7 +473,15 @@ export async function refreshAccessToken(
     );
   }
 
-  return { accessToken: data.data.accessToken };
+  const nativeRefresh = !useCookie && rt;
+  if (nativeRefresh && !data.data.refreshToken?.trim()) {
+    throw new PlizApiError('Invalid refresh response from server', res.status);
+  }
+
+  return {
+    accessToken: data.data.accessToken,
+    refreshToken: data.data.refreshToken?.trim(),
+  };
 }
 
 /**
@@ -501,6 +548,58 @@ export async function invalidateRefreshCookie(): Promise<void> {
       res.status
     );
   }
+}
+
+/**
+ * DELETE /api/auth/account — soft-delete the current user (Bearer required).
+ */
+export async function deleteAccount(
+  accessToken: string,
+  options?: { password: string; reason?: string }
+): Promise<string> {
+  if (!options?.password?.trim()) {
+    throw new PlizApiError('Password is required to delete your account', 400);
+  }
+
+  const body: { password: string; reason?: string } = {
+    password: options.password,
+  };
+  const reason = options.reason?.trim();
+  if (reason) body.reason = reason;
+
+  const res = await fetch(apiUrl('/api/auth/account'), {
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(body),
+    credentials: isWebAuthEnvironment() ? 'include' : 'omit',
+  });
+
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    throw new PlizApiError('Invalid response from server', res.status);
+  }
+
+  const data = json as {
+    success?: boolean;
+    message?: string;
+    errors?: { field: string; message: string }[];
+  };
+
+  if (!res.ok || data.success !== true) {
+    throw new PlizApiError(
+      data.message ?? `Request failed (${res.status})`,
+      res.status,
+      Array.isArray(data.errors) ? data.errors : []
+    );
+  }
+
+  return data.message ?? 'Your account has been deleted.';
 }
 
 /**

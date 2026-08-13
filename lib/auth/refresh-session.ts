@@ -1,7 +1,22 @@
 import { refreshAccessToken } from '@/lib/api/auth';
 
-import { getRefreshToken, setTokens } from './access-token';
-import { isWebAuthEnvironment } from '@/lib/auth/web-auth';
+import { getAccessToken, getRefreshToken, setTokens } from './access-token';
+import { isWebAuthEnvironment, clearStaleHostOnlyAuthCookies } from '@/lib/auth/web-auth';
+
+const REFRESH_BEFORE_EXPIRY_MS = 2 * 60 * 1000;
+
+function getJwtExpiryMs(token: string): number | null {
+  try {
+    const part = token.split('.')[1];
+    if (!part) return null;
+    const b64 = part.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+    const payload = JSON.parse(globalThis.atob(padded)) as { exp?: unknown };
+    return typeof payload.exp === 'number' ? payload.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Single in-flight refresh so concurrent 401s share one token rotation. */
 let refreshPromise: Promise<boolean> | null = null;
@@ -30,6 +45,7 @@ export function tryRefreshAccessToken(): Promise<boolean> {
   refreshPromise = (async (): Promise<boolean> => {
     try {
       if (isWebAuthEnvironment()) {
+        clearStaleHostOnlyAuthCookies();
         const { accessToken } = await refreshAccessToken();
         await setTokens(accessToken, '');
         refreshFailedUntil = 0;
@@ -40,8 +56,12 @@ export function tryRefreshAccessToken(): Promise<boolean> {
         refreshFailedUntil = Date.now() + FAILED_REFRESH_COOLDOWN_MS;
         return false;
       }
-      const { accessToken } = await refreshAccessToken(rt);
-      await setTokens(accessToken, rt);
+      const { accessToken, refreshToken: newRefreshToken } = await refreshAccessToken(rt);
+      if (!newRefreshToken) {
+        refreshFailedUntil = Date.now() + FAILED_REFRESH_COOLDOWN_MS;
+        return false;
+      }
+      await setTokens(accessToken, newRefreshToken);
       refreshFailedUntil = 0;
       return true;
     } catch {
@@ -53,4 +73,29 @@ export function tryRefreshAccessToken(): Promise<boolean> {
   })();
 
   return refreshPromise;
+}
+
+/**
+ * Proactively refresh before the access JWT expires (native). No-op on web or when logged out.
+ */
+export async function refreshSessionIfNeeded(): Promise<void> {
+  if (isWebAuthEnvironment()) {
+    return;
+  }
+
+  const rt = await getRefreshToken();
+  if (!rt?.trim()) {
+    return;
+  }
+
+  const access = await getAccessToken();
+  if (!access) {
+    await tryRefreshAccessToken();
+    return;
+  }
+
+  const expMs = getJwtExpiryMs(access);
+  if (expMs === null || expMs - Date.now() <= REFRESH_BEFORE_EXPIRY_MS) {
+    await tryRefreshAccessToken();
+  }
 }

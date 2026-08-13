@@ -19,7 +19,7 @@ export interface HomeHeaderProps {
   firstName: string;
   role: string;
   onNotificationPress?: () => void;
-  /** When &gt; 0, shows a badge on the bell (e.g. unread API count). */
+  /** Unread count from GET /api/notifications/unread-count (shown on the bell). */
   unreadNotificationCount?: number;
   avatarColor?: string;
   avatarUrl?: string | null;

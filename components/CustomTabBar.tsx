@@ -3,6 +3,7 @@ import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Platform, Pressable, StyleSheet, View } from 'react-native';
 
 import { Text } from '@/components/Text';
+import { useStoryIndicator } from '@/contexts/StoryIndicatorContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const BRAND_BLUE = '#2E8BEA';
@@ -10,6 +11,7 @@ const TAB_INACTIVE = '#6B7280';
 
 export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
+  const { hasUnseenStories } = useStoryIndicator();
   const routes = state.routes;
 
   return (
@@ -72,7 +74,15 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
               typeof options.tabBarLabel === 'string' ? options.tabBarLabel : route.name
             }
           >
-            <Ionicons name={iconName as keyof typeof Ionicons.glyphMap} size={24} color={color} />
+            <View style={styles.iconWrap}>
+              <Ionicons name={iconName as keyof typeof Ionicons.glyphMap} size={24} color={color} />
+              {route.name === 'activity' && hasUnseenStories ? (
+                <View
+                  style={styles.unseenDot}
+                  accessibilityLabel="New community story"
+                />
+              ) : null}
+            </View>
             <Text style={[styles.label, { color }]}>{options.title ?? route.name}</Text>
           </Pressable>
         );
@@ -100,6 +110,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 4,
+  },
+  iconWrap: {
+    width: 28,
+    height: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  unseenDot: {
+    position: 'absolute',
+    top: 0,
+    right: 1,
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: '#EF4444',
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
   },
   tabWrapper: {
     flex: 1,

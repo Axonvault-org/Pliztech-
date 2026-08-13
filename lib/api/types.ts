@@ -129,6 +129,24 @@ function formatSafePlizApiMessageBody(
 }
 
 /**
+ * Generic copy for login / OAuth failures (hides deleted-account and other auth details).
+ */
+export function formatLoginErrorForUser(error: unknown): string {
+  const message = formatPlizApiErrorForUser(error);
+  const normalized = message.toLowerCase();
+
+  if (
+    normalized.includes('account has been deleted') ||
+    normalized.includes('account was used for a deleted account') ||
+    normalized.includes('account_deleted')
+  ) {
+    return 'Invalid email or password';
+  }
+
+  return message;
+}
+
+/**
  * Single string for Alerts / banners: top-level `message` plus validation `errors` from the API.
  */
 export function formatPlizApiErrorForUser(error: unknown): string {

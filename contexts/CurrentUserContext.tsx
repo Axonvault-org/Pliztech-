@@ -22,6 +22,10 @@ import {
 } from '@/lib/auth/session-expired';
 import { queryKeys } from '@/lib/query/query-keys';
 import { STALE_TIMES } from '@/lib/query/stale-times';
+import { avatarColorFromSeed } from '@/lib/user/avatar-color';
+import { clearRegisteredPushTokenOnLogout } from '@/hooks/usePushNotifications';
+
+export { avatarColorFromSeed };
 
 export function displayFirstName(user: MeUser | null): string {
   if (!user) return '';
@@ -129,15 +133,6 @@ export function initialsFromDisplayName(name: string): string {
   return parts[0]?.[0]?.toUpperCase() ?? '?';
 }
 
-export function avatarColorFromSeed(seed: string): string {
-  const palette = ['#2E8BEA', '#EF4444', '#8B5CF6', '#10B981', '#F59E0B', '#EC4899'];
-  let h = 0;
-  for (let i = 0; i < seed.length; i++) {
-    h = seed.charCodeAt(i) + ((h << 5) - h);
-  }
-  return palette[Math.abs(h) % palette.length]!;
-}
-
 type CurrentUserContextValue = {
   user: MeUser | null;
   /** True while resolving the session when there is no cached user yet. Background `/me` refetches do not flip this (avoids unmounting tabs + request loops). */
@@ -177,6 +172,7 @@ export function CurrentUserProvider({ children }: { children: ReactNode }) {
           }
         }
       }
+      await clearRegisteredPushTokenOnLogout();
       await clearTokens();
       queryClient.setQueryData(queryKeys.me, null);
       queryClient.removeQueries({ queryKey: queryKeys.me });
@@ -187,41 +183,47 @@ export function CurrentUserProvider({ children }: { children: ReactNode }) {
     return signOutInFlight.current;
   }, [queryClient]);
 
+  const fetchCurrentUser = useCallback(async (): Promise<MeUser | null> => {
+    let token = await getAccessToken();
+    if (!token) {
+      await tryRefreshAccessToken();
+      token = await getAccessToken();
+    }
+    if (!token) return null;
+
+    try {
+      return await getMe(token);
+    } catch (e) {
+      if (e instanceof PlizApiError && e.status === 401) {
+        const recovered = await recoverFromUnauthorized(signOut);
+        if (recovered) {
+          const token2 = await getAccessToken();
+          if (token2) {
+            return getMe(token2);
+          }
+        }
+        await logoutAndGoToLogin(signOut);
+        return null;
+      }
+      throw e;
+    }
+  }, [signOut]);
+
   const meQuery = useQuery({
     queryKey: queryKeys.me,
-    queryFn: async (): Promise<MeUser | null> => {
-      let token = await getAccessToken();
-      if (!token) {
-        await tryRefreshAccessToken();
-        token = await getAccessToken();
-      }
-      if (!token) return null;
-
-      try {
-        return await getMe(token);
-      } catch (e) {
-        if (e instanceof PlizApiError && e.status === 401) {
-          const recovered = await recoverFromUnauthorized(signOut);
-          if (recovered) {
-            const token2 = await getAccessToken();
-            if (token2) {
-              return getMe(token2);
-            }
-          }
-          await logoutAndGoToLogin(signOut);
-          return null;
-        }
-        throw e;
-      }
-    },
+    queryFn: fetchCurrentUser,
     staleTime: STALE_TIMES.me,
     retry: false,
   });
 
   const refreshUser = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: queryKeys.me });
-    await queryClient.fetchQuery({ queryKey: queryKeys.me });
-  }, [queryClient]);
+    await queryClient.fetchQuery({
+      queryKey: queryKeys.me,
+      queryFn: fetchCurrentUser,
+      staleTime: STALE_TIMES.me,
+    });
+  }, [fetchCurrentUser, queryClient]);
 
   const user = meQuery.data ?? null;
   const isLoading = meQuery.isLoading && user == null;

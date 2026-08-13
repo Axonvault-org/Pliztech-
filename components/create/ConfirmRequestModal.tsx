@@ -12,6 +12,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Text } from '@/components/Text';
 import { CTA_COLORS, CTA_GRADIENT } from '@/constants/cta-buttons';
+import {
+  PLATFORM_FEE_PERCENT,
+  VAT_ON_PLATFORM_FEE_PERCENT,
+} from '@/lib/withdrawal-fees';
 
 function roundMoney(amount: number): number {
   return Math.round(amount * 100) / 100;
@@ -49,8 +53,8 @@ export function ConfirmRequestModal({
   categoryIcon,
   description,
   amountRequested,
-  platformFeePercent = 5,
-  vatGovPercent = 7.5,
+  platformFeePercent = PLATFORM_FEE_PERCENT,
+  vatGovPercent = VAT_ON_PLATFORM_FEE_PERCENT,
   expiryLabel,
   submitting = false,
 }: ConfirmRequestModalProps) {

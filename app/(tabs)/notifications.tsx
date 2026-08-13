@@ -27,6 +27,7 @@ import {
 } from '@/lib/api/beg';
 import {
   getNotifications,
+  isSupportMessagesNotificationType,
   mapApiNotificationToListItem,
   markAllNotificationsRead,
   markNotificationRead,
@@ -46,6 +47,7 @@ const ICON_MAP: Record<NotificationListItem['icon'], keyof typeof Ionicons.glyph
   heart: 'heart-outline',
   'checkmark-circle': 'checkmark-circle-outline',
   chatbubble: 'chatbubble-outline',
+  megaphone: 'megaphone-outline',
   time: 'time-outline',
   'alert-circle': 'alert-circle-outline',
   gift: 'gift-outline',
@@ -319,6 +321,21 @@ export default function NotificationsScreen() {
           await recoverFromUnauthorized(signOut);
         }
       }
+    }
+
+    if (
+      isSupportMessagesNotificationType(item.notificationType) ||
+      item.chatId ||
+      item.broadcastId
+    ) {
+      router.push({
+        pathname: '/(tabs)/admin-messages',
+        params: {
+          ...(item.chatId ? { chatId: item.chatId } : {}),
+          ...(item.broadcastId ? { broadcastId: item.broadcastId } : {}),
+        },
+      });
+      return;
     }
 
     if (item.begId) {

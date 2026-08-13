@@ -6,6 +6,7 @@ import { ActivityIndicator, Alert, StyleSheet, TextInput, View } from 'react-nat
 import { Text } from '@/components/Text';
 
 import { AppHeaderTitleRow } from '@/components/layout/AppHeaderTitleRow';
+import { NigerianStatePicker } from '@/components/form/NigerianStatePicker';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { Screen } from '@/components/Screen';
 import { NIGERIAN_STATES } from '@/constants/nigerian-states';
@@ -73,6 +74,7 @@ export default function EditPersonalInfoScreen() {
   const [city, setCity] = useState('');
   const [address, setAddress] = useState('');
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user?.profile) return;
@@ -85,6 +87,7 @@ export default function EditPersonalInfoScreen() {
   }, [user?.profile]);
 
   const handleSave = useCallback(async () => {
+    setSaveError(null);
     const fn = firstName.trim();
     const ln = lastName.trim();
     const phone = phoneNumber.trim();
@@ -134,7 +137,9 @@ export default function EditPersonalInfoScreen() {
       await refreshUser();
       router.back();
     } catch (e) {
-      Alert.alert('Could not save', formatPlizApiErrorForUser(e));
+      const message = formatPlizApiErrorForUser(e);
+      setSaveError(message);
+      Alert.alert('Could not save', message);
     } finally {
       setSaving(false);
     }
@@ -169,7 +174,10 @@ export default function EditPersonalInfoScreen() {
         icon="person-outline"
         label="First name"
         value={firstName}
-        onChangeText={setFirstName}
+        onChangeText={(value) => {
+          setSaveError(null);
+          setFirstName(value);
+        }}
         placeholder="First name"
         autoCapitalize="words"
       />
@@ -177,7 +185,10 @@ export default function EditPersonalInfoScreen() {
         icon="person-outline"
         label="Last name"
         value={lastName}
-        onChangeText={setLastName}
+        onChangeText={(value) => {
+          setSaveError(null);
+          setLastName(value);
+        }}
         placeholder="Last name"
         autoCapitalize="words"
       />
@@ -191,23 +202,30 @@ export default function EditPersonalInfoScreen() {
         icon="call-outline"
         label="Phone number"
         value={phoneNumber}
-        onChangeText={setPhoneNumber}
+        onChangeText={(value) => {
+          setSaveError(null);
+          setPhoneNumber(value);
+        }}
         placeholder="+2348012345678"
         keyboardType="phone-pad"
       />
-      <EditField
-        icon="map-outline"
+      <NigerianStatePicker
         label="State"
         value={stateValue}
-        onChangeText={setStateValue}
-        placeholder="Lagos"
-        autoCapitalize="words"
+        onChange={(value) => {
+          setSaveError(null);
+          setStateValue(value);
+        }}
+        placeholder="Tap to select state"
       />
       <EditField
         icon="location-outline"
         label="City"
         value={city}
-        onChangeText={setCity}
+        onChangeText={(value) => {
+          setSaveError(null);
+          setCity(value);
+        }}
         placeholder="Ikeja"
         autoCapitalize="words"
       />
@@ -215,10 +233,20 @@ export default function EditPersonalInfoScreen() {
         icon="home-outline"
         label="Address"
         value={address}
-        onChangeText={setAddress}
+        onChangeText={(value) => {
+          setSaveError(null);
+          setAddress(value);
+        }}
         placeholder="Street address (optional)"
         autoCapitalize="words"
       />
+
+      {saveError ? (
+        <View style={styles.errorBox} accessibilityRole="alert" accessibilityLiveRegion="polite">
+          <Ionicons name="alert-circle-outline" size={18} color="#B42318" />
+          <Text style={styles.errorText}>{saveError}</Text>
+        </View>
+      ) : null}
 
       <PrimaryButton
         label={saving ? 'Saving…' : 'Save Changes'}
@@ -279,5 +307,23 @@ const styles = StyleSheet.create({
     color: LABEL_GRAY,
     textAlign: 'center',
     paddingHorizontal: 24,
+  },
+  errorBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    backgroundColor: '#FEF3F2',
+    borderWidth: 1,
+    borderColor: '#FDA29B',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+  },
+  errorText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#B42318',
+    fontWeight: '600',
   },
 });

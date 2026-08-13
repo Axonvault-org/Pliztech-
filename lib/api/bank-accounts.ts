@@ -91,6 +91,7 @@ export async function resolveWithdrawalBankAccount(
 export type WithdrawalBankAccount = {
   id: string;
   accountNumber: string;
+  accountNumberLast4?: string;
   accountName: string;
   bankCode: string;
   bankName: string;
@@ -153,16 +154,27 @@ function normalizeBankAccountBody(body: {
   };
 }
 
-/** Match saved account by account number (backend uniqueness key). */
+function accountLast4(account: WithdrawalBankAccount): string {
+  if (account.accountNumberLast4?.trim()) {
+    return account.accountNumberLast4.trim();
+  }
+  const digits = account.accountNumber.replace(/\D/g, '');
+  return digits.length >= 4 ? digits.slice(-4) : digits;
+}
+
+/** Match saved account by bank code + last 4 digits (API masks full account numbers). */
 export function findMatchingWithdrawalBankAccount(
   accounts: WithdrawalBankAccount[],
   body: { accountNumber: string; bankCode: string }
 ): WithdrawalBankAccount | undefined {
   const { accountNumber, bankCode } = normalizeBankAccountBody(body);
+  const inputLast4 = accountNumber.replace(/\D/g, '').slice(-4);
+  if (inputLast4.length !== 4) return undefined;
+
   return accounts.find(
     (a) =>
-      a.accountNumber.trim() === accountNumber &&
-      a.bankCode.trim() === bankCode
+      a.bankCode.trim() === bankCode &&
+      accountLast4(a) === inputLast4
   );
 }
 
@@ -234,6 +246,9 @@ export async function getWithdrawalBankAccounts(
   return raw.map((a) => ({
     id: String(a.id),
     accountNumber: String(a.accountNumber ?? ''),
+    accountNumberLast4: a.accountNumberLast4
+      ? String(a.accountNumberLast4)
+      : undefined,
     accountName: String(a.accountName ?? ''),
     bankCode: String(a.bankCode ?? ''),
     bankName: String(a.bankName ?? ''),

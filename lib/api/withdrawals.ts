@@ -80,6 +80,18 @@ export async function getUserWithdrawals(
   };
 }
 
+/** Most recent withdrawal for a beg, if any. */
+export function latestWithdrawalForBeg(
+  withdrawals: WithdrawalApiItem[],
+  begId: string
+): WithdrawalApiItem | undefined {
+  const forBeg = withdrawals.filter((w) => w.beg.id === begId);
+  forBeg.sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
+  return forBeg[0];
+}
+
 export type RequestWithdrawalBody = {
   begId: string;
   bankAccountId?: string;

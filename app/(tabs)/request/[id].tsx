@@ -13,7 +13,14 @@ import {
     View,
 } from 'react-native';
 
+import { DonationTermsConsent } from '@/components/compliance/DonationTermsConsent';
+import {
+  ModerationStatusBadge,
+  moderationOwnerMessage,
+  moderationStatusFromBeg,
+} from '@/components/compliance/ModerationStatusBadge';
 import { DonationThankYouModal } from '@/components/donation/DonationThankYouModal';
+import { BegEvidenceViewerModal } from '@/components/evidence/BegEvidenceViewerModal';
 import { CTAButton } from '@/components/CTAButton';
 import { Text } from '@/components/Text';
 
@@ -23,25 +30,73 @@ import { RequestDetailHeader } from '@/components/request/RequestDetailHeader';
 import { RequestDonorList } from '@/components/request/RequestDonorList';
 import { RequesterAvatar } from '@/components/request/RequesterAvatar';
 import { MemberProfileModal } from '@/components/profile/MemberProfileModal';
+import { ReportContentSheet, type ReportTarget } from '@/components/safety/ReportContentSheet';
+import { VerifiedByPlzBadge } from '@/components/safety/VerifiedByPlzBadge';
+import { VerificationStatusDot } from '@/components/safety/VerificationStatusDot';
 import { Screen } from '@/components/Screen';
 import { REQUEST_CATEGORIES } from '@/constants/categories';
 import {
     begFeedItemToRequestDetail,
     getBegById,
 } from '@/lib/api/beg';
-import { initializeDonation, getBegDonations, type BegDonationApiItem } from '@/lib/api/donations';
+import {
+  cancelDonationByReference,
+  getBegDonations,
+  initializeDonation,
+  verifyDonationByReference,
+  waitForDonationVerification,
+  type BegDonationApiItem,
+  type CancelDonationApiResult,
+} from '@/lib/api/donations';
+import {
+  deleteBegEvidence,
+  getBegEvidence,
+  uploadBegEvidence,
+  updateEvidenceSensitivity,
+  type BegEvidenceItem,
+  type EvidenceUploadFile,
+} from '@/lib/api/evidence';
+import { reportBeg } from '@/lib/api/reports';
 import { getReactions, toggleReaction, type ReactionsPayload } from '@/lib/api/reactions';
 import { formatPlizApiErrorForUser } from '@/lib/api/types';
 import { getPaymentDonationCallbackUrl, getPaymentWebCallbackUrl } from '@/lib/donation/payment-callback-url';
-import { savePendingDonationThankYou } from '@/lib/donation/pending-thank-you';
-import { savePendingPaymentCheckout } from '@/lib/donation/pending-payment-checkout';
+import {
+  clearPendingDonationThankYou,
+  savePendingDonationThankYou,
+} from '@/lib/donation/pending-thank-you';
+import {
+  clearPendingPaymentCheckout,
+  savePendingPaymentCheckout,
+} from '@/lib/donation/pending-payment-checkout';
+import {
+  markPaymentCheckoutActive,
+  markPaymentCheckoutInactive,
+} from '@/lib/donation/payment-return-session';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
+import * as ImagePicker from 'expo-image-picker';
 import { openPaymentCheckout } from '@/lib/utils/open-payment-checkout';
 import { withUnauthorizedRecovery } from '@/lib/auth/session-expired';
+import { useRequestSafetyActions } from '@/hooks/useRequestSafetyActions';
+import { buildRequestCardSafetyMenu } from '@/components/request/request-card-safety';
 import { getAccessToken } from '@/lib/auth/access-token';
 import { digitsOnly, formatAmountInput } from '@/lib/money/input-format';
+import {
+  isBegActiveForWithdrawNow,
+  isBegWithdrawable,
+} from '@/lib/beg/withdrawable';
+import {
+  getUserWithdrawals,
+  latestWithdrawalForBeg,
+  type WithdrawalApiItem,
+} from '@/lib/api/withdrawals';
 import type { RequestDetail } from '@/lib/types/requests';
-import { getPlatformFee, getRequestReceives, getVatOnPlatformFee } from '@/lib/types/requests';
+import {
+  getPlatformFee,
+  getRequestReceives,
+  getVatOnPlatformFee,
+  PLATFORM_FEE_PERCENT,
+  VAT_ON_PLATFORM_FEE_PERCENT,
+} from '@/lib/types/requests';
 
 const AMOUNT_OPTIONS = [
   { value: 1000, label: '₦1K' },
@@ -95,9 +150,28 @@ const REQUEST_DETAIL_MAX_WIDTH = 960;
 
 export default function RequestDetailScreen() {
   const { user, signOut } = useCurrentUser();
+  const {
+    hiddenBegIds,
+    blockedUserIds,
+    toggleHidden,
+    toggleBlocked,
+    runFlag,
+    defaultOnBlocked,
+  } = useRequestSafetyActions();
   const anonymousModeEnabled = user?.profile?.isAnonymous ?? false;
-  const params = useLocalSearchParams<{ id: string }>();
+  const params = useLocalSearchParams<{
+    id: string;
+    donate?: string;
+    restoreAmount?: string;
+    restoreShowName?: string;
+  }>();
   const id = typeof params.id === 'string' ? params.id : params.id?.[0];
+  const donateIntent = params.donate === '1' || params.donate === 'true';
+
+  const scrollRef = useRef<ScrollView>(null);
+  const pageContentRef = useRef<View>(null);
+  const donationAnchorRef = useRef<View>(null);
+  const pendingDonateScroll = useRef(false);
 
   const [request, setRequest] = useState<RequestDetail | null>(null);
   const [loading, setLoading] = useState(Boolean(id));
@@ -108,6 +182,14 @@ export default function RequestDetailScreen() {
   const [begDonations, setBegDonations] = useState<BegDonationApiItem[]>([]);
   const [donorTotal, setDonorTotal] = useState(0);
   const [donorsLoading, setDonorsLoading] = useState(false);
+  const [ownerWithdrawal, setOwnerWithdrawal] = useState<WithdrawalApiItem | null>(null);
+  const [evidence, setEvidence] = useState<BegEvidenceItem[]>([]);
+  const [evidenceLoading, setEvidenceLoading] = useState(false);
+  const [evidenceUploading, setEvidenceUploading] = useState(false);
+  const [evidenceViewerOpen, setEvidenceViewerOpen] = useState(false);
+  const [selectedEvidenceIndex, setSelectedEvidenceIndex] = useState(0);
+  const [reportVisible, setReportVisible] = useState(false);
+  const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
 
   const loadRequest = useCallback(async () => {
     if (!id) {
@@ -133,6 +215,31 @@ export default function RequestDetailScreen() {
   useEffect(() => {
     void loadRequest();
   }, [loadRequest]);
+
+  const scrollToDonationSection = useCallback(() => {
+    const pageNode = pageContentRef.current;
+    const anchorNode = donationAnchorRef.current;
+    if (!pageNode || !anchorNode) return;
+    anchorNode.measureLayout(
+      pageNode,
+      (_x, y) => {
+        scrollRef.current?.scrollTo({ y: Math.max(0, y - 16), animated: true });
+      },
+      () => {}
+    );
+  }, []);
+
+  useEffect(() => {
+    if (
+      donateIntent &&
+      !loading &&
+      request &&
+      user?.id !== request.ownerUserId &&
+      request.canDonate !== false
+    ) {
+      pendingDonateScroll.current = true;
+    }
+  }, [donateIntent, loading, request, user?.id]);
 
   const loadReactions = useCallback(async () => {
     if (!id) return;
@@ -169,10 +276,167 @@ export default function RequestDetailScreen() {
     if (!request?.ownerUserId || !user?.id || user.id !== request.ownerUserId) {
       setBegDonations([]);
       setDonorTotal(0);
+      setOwnerWithdrawal(null);
       return;
     }
     void loadDonors();
   }, [request?.ownerUserId, user?.id, loadDonors]);
+
+  const loadOwnerWithdrawal = useCallback(async () => {
+    if (!id || !request?.ownerUserId || !user?.id || user.id !== request.ownerUserId) {
+      setOwnerWithdrawal(null);
+      return;
+    }
+    try {
+      const token = await getAccessToken();
+      if (!token) {
+        setOwnerWithdrawal(null);
+        return;
+      }
+      const wd = await getUserWithdrawals(token, { page: 1, limit: 50 });
+      setOwnerWithdrawal(latestWithdrawalForBeg(wd.withdrawals, id) ?? null);
+    } catch {
+      setOwnerWithdrawal(null);
+    }
+  }, [id, request?.ownerUserId, user?.id]);
+
+  useEffect(() => {
+    void loadOwnerWithdrawal();
+  }, [loadOwnerWithdrawal, request?.raised, request?.isWithdrawn]);
+
+  const loadEvidence = useCallback(async () => {
+    if (!id || !request?.ownerUserId) {
+      setEvidence([]);
+      return;
+    }
+    setEvidenceLoading(true);
+    try {
+      const token = await getAccessToken();
+      if (!token) {
+        setEvidence([]);
+        return;
+      }
+      setEvidence(await getBegEvidence(token, id));
+    } catch {
+      setEvidence([]);
+    } finally {
+      setEvidenceLoading(false);
+    }
+  }, [id, request?.ownerUserId]);
+
+  useEffect(() => {
+    void loadEvidence();
+  }, [loadEvidence]);
+
+  const onAddEvidence = useCallback(async () => {
+    if (!id || evidenceUploading) return;
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Permission needed', 'Allow photo access to attach evidence.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: false,
+      quality: 0.85,
+    });
+    if (result.canceled || !result.assets[0]) return;
+    const asset = result.assets[0];
+    const file: EvidenceUploadFile = {
+      uri: asset.uri,
+      name: asset.fileName || `beg-evidence-${Date.now()}.jpg`,
+      type: asset.mimeType || 'image/jpeg',
+      file: asset.file,
+    };
+    setEvidenceUploading(true);
+    try {
+      const token = await getAccessToken();
+      if (!token) throw new Error('Please sign in again.');
+      await uploadBegEvidence(token, id, file);
+      await loadEvidence();
+    } catch (e) {
+      Alert.alert('Could not upload evidence', formatPlizApiErrorForUser(e));
+    } finally {
+      setEvidenceUploading(false);
+    }
+  }, [id, evidenceUploading, loadEvidence]);
+
+  const openReportBeg = useCallback(() => {
+    if (!id || !request) return;
+    setReportTarget({ type: 'beg', id, label: request.text });
+    setReportVisible(true);
+  }, [id, request]);
+
+  const detailSafetyMenu = useMemo(() => {
+    if (!id || !request?.ownerUserId) return undefined;
+    const isViewerOwner = Boolean(user?.id && user.id === request.ownerUserId);
+    if (isViewerOwner) return undefined;
+    return buildRequestCardSafetyMenu({
+      begId: id,
+      ownerUserId: request.ownerUserId,
+      hiddenBegIds,
+      blockedUserIds,
+      toggleHidden,
+      toggleBlocked,
+      runFlag,
+      onFlag: openReportBeg,
+      onHidden: defaultOnBlocked,
+      onBlocked: defaultOnBlocked,
+    });
+  }, [
+    id,
+    request,
+    user?.id,
+    hiddenBegIds,
+    blockedUserIds,
+    toggleHidden,
+    toggleBlocked,
+    runFlag,
+    openReportBeg,
+    defaultOnBlocked,
+  ]);
+
+  const onToggleEvidenceSensitivity = useCallback(
+    (item: BegEvidenceItem, next: boolean) => {
+      if (!id) return;
+      void (async () => {
+        try {
+          const token = await getAccessToken();
+          if (!token) throw new Error('Please sign in again.');
+          await updateEvidenceSensitivity(token, id, item.id, next);
+          await loadEvidence();
+        } catch (e) {
+          Alert.alert('Could not update sensitivity', formatPlizApiErrorForUser(e));
+        }
+      })();
+    },
+    [id, loadEvidence]
+  );
+
+  const onDeleteEvidence = useCallback(
+    (item: BegEvidenceItem) => {
+      if (!id) return;
+      Alert.alert('Delete evidence?', 'This removes the file from your request.', [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () =>
+            void (async () => {
+              try {
+                const token = await getAccessToken();
+                if (!token) throw new Error('Please sign in again.');
+                await deleteBegEvidence(token, id, item.id);
+                await loadEvidence();
+              } catch (e) {
+                Alert.alert('Could not delete evidence', formatPlizApiErrorForUser(e));
+              }
+            })(),
+        },
+      ]);
+    },
+    [id, loadEvidence]
+  );
 
   /** Set when request loads or user changes amount — avoids errors on first paint. */
   const [selectedAmount, setSelectedAmount] = useState<number | null>(null);
@@ -182,6 +446,7 @@ export default function RequestDetailScreen() {
   const [showName, setShowName] = useState(true);
   const [donationSubmitting, setDonationSubmitting] = useState(false);
   const [donationProgressMessage, setDonationProgressMessage] = useState('');
+  const [paymentRetryBlocked, setPaymentRetryBlocked] = useState(false);
   const [donationThankYou, setDonationThankYou] = useState<{
     amount: number;
     recipientName: string;
@@ -202,11 +467,28 @@ export default function RequestDetailScreen() {
 
   useEffect(() => {
     if (!requestId) return;
+    const restoredAmount = Number(
+      typeof params.restoreAmount === 'string' ? params.restoreAmount : ''
+    );
+    if (Number.isFinite(restoredAmount) && restoredAmount >= MIN_DONATION_AMOUNT) {
+      const preset = AMOUNT_OPTIONS.find((option) => option.value === restoredAmount);
+      setSelectedAmount(preset?.value ?? null);
+      setCustomAmount(preset ? '' : String(restoredAmount));
+      setShowName(anonymousModeEnabled ? false : params.restoreShowName !== 'false');
+      setAmountTouched(false);
+      return;
+    }
     const { selected, custom } = defaultDonationSelection(amountNeeded);
     setSelectedAmount(selected);
     setCustomAmount(custom);
     setAmountTouched(false);
-  }, [requestId, amountNeeded]);
+  }, [
+    requestId,
+    amountNeeded,
+    anonymousModeEnabled,
+    params.restoreAmount,
+    params.restoreShowName,
+  ]);
 
   const parsedCustomAmount = useMemo(() => {
     const parsed = parseInt(digitsOnly(customAmount), 10);
@@ -234,6 +516,13 @@ export default function RequestDetailScreen() {
 
   const onContinueDonation = useCallback(async () => {
     if (donationSubmitting) return;
+    if (paymentRetryBlocked) {
+      Alert.alert(
+        'Payment still processing',
+        'Wait for the current payment to reach a final status before starting another attempt.'
+      );
+      return;
+    }
     setAmountTouched(true);
     if (!id?.trim()) {
       Alert.alert('Request', 'Missing request id. Go back and open the request again.');
@@ -284,6 +573,15 @@ export default function RequestDetailScreen() {
           }
         }
 
+        await savePendingPaymentCheckout({
+          reference: result.paymentReference,
+          paymentUrl: result.paymentUrl,
+          redirectUrl: callbackUrl,
+          begId: id,
+          amount: rawAmount,
+          showRecipientName: effectiveShowName,
+        });
+
         if (Platform.OS === 'web') {
           await openPaymentCheckout(result.paymentUrl, {
             redirectUrl: callbackUrl,
@@ -292,19 +590,94 @@ export default function RequestDetailScreen() {
           return;
         }
 
-        // Native: one completion surface — callback opens checkout, verifies, and shows thank-you.
-        await savePendingPaymentCheckout({
-          reference: result.paymentReference,
-          paymentUrl: result.paymentUrl,
+        // Keep this screen mounted so browser dismissal restores the exact form state.
+        markPaymentCheckoutActive(result.paymentReference);
+        const checkoutResult = await openPaymentCheckout(result.paymentUrl, {
           redirectUrl: callbackUrl,
+          paymentReference: result.paymentReference,
+          skipNavigation: true,
         });
-        router.replace({
-          pathname: '/payment/callback',
-          params: {
-            reference: result.paymentReference,
-            checkout: '1',
-          },
-        });
+        markPaymentCheckoutInactive(result.paymentReference);
+
+        if (checkoutResult.outcome === 'completed' && checkoutResult.verifiedResult?.success) {
+          await Promise.all([
+            clearPendingPaymentCheckout(),
+            clearPendingDonationThankYou(),
+          ]);
+          setDonationThankYou({
+            amount: rawAmount,
+            recipientName: request?.name ?? 'the recipient',
+            showRecipientName: effectiveShowName,
+            donationId: result.donationId,
+          });
+          void loadRequest();
+          return;
+        }
+
+        if (checkoutResult.outcome === 'cancelled') {
+          setDonationProgressMessage('Checking payment status…');
+          let cancellation: CancelDonationApiResult;
+          try {
+            cancellation = await withUnauthorizedRecovery(signOut, (token) =>
+              cancelDonationByReference(token, result.paymentReference)
+            );
+          } catch (error) {
+            setPaymentRetryBlocked(true);
+            Alert.alert(
+              'Could not cancel payment',
+              `${formatPlizApiErrorForUser(error)}\n\nThe checkout is closed, but its payment status is unchanged. Do not retry until you can confirm the status.`
+            );
+            return;
+          }
+
+          if (cancellation.status === 'cancelled' || cancellation.status === 'canceled') {
+            setPaymentRetryBlocked(false);
+            await Promise.all([
+              clearPendingPaymentCheckout(),
+              clearPendingDonationThankYou(),
+            ]);
+            Alert.alert(
+              'Payment cancelled',
+              cancellation.canRetry
+                ? `${cancellation.message}\n\nYou can try again now or choose another method in checkout.`
+                : cancellation.message
+            );
+            return;
+          }
+
+          if (['successful', 'succeeded', 'completed'].includes(cancellation.status)) {
+            const verified =
+              (await waitForDonationVerification(result.paymentReference, {
+                maxAttempts: 8,
+                intervalMs: 1500,
+              })) ?? (await verifyDonationByReference(result.paymentReference));
+            if (verified.success) {
+              setPaymentRetryBlocked(false);
+              await Promise.all([
+                clearPendingPaymentCheckout(),
+                clearPendingDonationThankYou(),
+              ]);
+              setDonationThankYou({
+                amount: rawAmount,
+                recipientName: request?.name ?? 'the recipient',
+                showRecipientName: effectiveShowName,
+                donationId: result.donationId,
+              });
+              void loadRequest();
+              return;
+            }
+          }
+
+          setPaymentRetryBlocked(!cancellation.canRetry);
+          Alert.alert(
+            'Cancellation unavailable',
+            `${cancellation.message}\n\nProvider status: ${cancellation.status}. ${
+              cancellation.canRetry
+                ? 'You can retry with another payment method.'
+                : 'Do not retry until this payment reaches a final status.'
+            }`
+          );
+        }
         return;
       } else {
         if (request) {
@@ -332,13 +705,13 @@ export default function RequestDetailScreen() {
   }, [
     id,
     donationSubmitting,
+    paymentRetryBlocked,
     selectedDonationAmount,
     donationAmountError,
     showName,
     anonymousModeEnabled,
     request,
     loadRequest,
-    loadDonors,
     signOut,
   ]);
 
@@ -430,12 +803,70 @@ export default function RequestDetailScreen() {
     ownerUserId,
     isAnonymous,
     approved,
+    ownerKycVerified,
     canDonate: canDonateFromApi,
     viewerDonation,
+    begStatus,
+    isWithdrawn,
   } = request;
 
   const isOwner =
     Boolean(user?.id && ownerUserId && user.id === ownerUserId);
+  const canViewEvidence = Boolean(ownerUserId);
+
+  const isAwaitingApproval = isOwner && approved === false;
+  const isVerifiedRequest = Boolean(approved && !isAwaitingApproval);
+  const isOwnerKycVerified = Boolean(ownerKycVerified);
+  const ownerModerationStatus = isOwner
+    ? moderationStatusFromBeg({ approved, begStatus, isOwner: true })
+    : null;
+  const ownerModerationMessage =
+    ownerModerationStatus != null ? moderationOwnerMessage(ownerModerationStatus) : null;
+  const ownerWithdrawalPending =
+    ownerWithdrawal != null &&
+    (ownerWithdrawal.status === 'pending' || ownerWithdrawal.status === 'processing');
+  const ownerWithdrawalCompleted = ownerWithdrawal?.status === 'completed';
+  const ownerCanWithdraw =
+    isOwner &&
+    !isAwaitingApproval &&
+    isBegWithdrawable({
+      status: begStatus ?? 'active',
+      expiresAt: request.expiresAt ?? '',
+      amountRaised: raised,
+      amountRequested: goal,
+      isWithdrawn,
+      approved: approved === true,
+    }) &&
+    !ownerWithdrawalPending &&
+    !ownerWithdrawalCompleted &&
+    !isWithdrawn;
+  const ownerShowWithdrawCta =
+    isOwner &&
+    !isAwaitingApproval &&
+    !ownerWithdrawalPending &&
+    !ownerWithdrawalCompleted &&
+    !isWithdrawn &&
+    !['cancelled', 'rejected', 'flagged', 'withdrawn'].includes(begStatus ?? '');
+  const ownerWithdrawEnabled = ownerCanWithdraw;
+  const withdrawNowActive =
+    ownerWithdrawEnabled &&
+    isBegActiveForWithdrawNow({
+      status: begStatus ?? 'active',
+      expiresAt: request.expiresAt ?? '',
+      amountRaised: raised,
+      amountRequested: goal,
+    });
+
+  const onOwnerWithdrawPress = () => {
+    router.push({
+      pathname: '/(tabs)/withdraw-funds',
+      params: {
+        step: '2',
+        begId: request.id,
+        amount: String(raised),
+      },
+    });
+  };
   const canViewRequesterProfile =
     Boolean(ownerUserId) && !isAnonymous && !isOwner;
 
@@ -447,7 +878,6 @@ export default function RequestDetailScreen() {
     }
     setProfileModalUserId(ownerUserId);
   };
-  const isAwaitingApproval = isOwner && approved === false;
   const visitorCanDonate =
     canDonateFromApi ??
     (approved !== false &&
@@ -485,9 +915,15 @@ export default function RequestDetailScreen() {
     }
   };
 
-  /** Figma: clock badge shows posted time (“8h ago”), not time remaining. */
+  /** Figma: clock badge shows posted time (“8h ago”), withdrawn early, or ended. */
   const fundingPostedBadge =
-    timeRemaining === 'Expired' ? 'Ended' : timeAgo;
+    isWithdrawn && begStatus !== 'funded'
+      ? 'Withdrawn early'
+      : timeRemaining === 'Expired'
+        ? 'Ended'
+        : timeAgo;
+  const fundingBadgeMuted =
+    isWithdrawn && begStatus !== 'funded' ? true : timeRemaining === 'Expired';
 
   return (
     <Screen backgroundColor="#FFFFFF">
@@ -497,17 +933,14 @@ export default function RequestDetailScreen() {
         onClose={() => setProfileModalUserId(null)}
       />
       <ScrollView
+        ref={scrollRef}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         nestedScrollEnabled
       >
-        <View style={styles.pageContent}>
-          <RequestDetailHeader
-            onReportPress={() =>
-              router.push('/(tabs)/report-issue' as import('expo-router').Href)
-            }
-          />
+        <View ref={pageContentRef} style={styles.pageContent}>
+          <RequestDetailHeader safetyMenu={detailSafetyMenu} />
 
           <View style={styles.requesterRow}>
             <RequesterAvatar
@@ -533,7 +966,10 @@ export default function RequestDetailScreen() {
                     <Text style={[styles.name, styles.nameLink]} numberOfLines={1}>
                       {name}
                     </Text>
-                    {badge ? (
+                    <VerificationStatusDot verified={isOwnerKycVerified} />
+                    {isVerifiedRequest ? (
+                      <VerifiedByPlzBadge compact />
+                    ) : badge ? (
                       <View style={styles.badge}>
                         <Text style={styles.badgeText}>{badge}</Text>
                       </View>
@@ -554,7 +990,10 @@ export default function RequestDetailScreen() {
                   <Text style={styles.name} numberOfLines={1}>
                     {name}
                   </Text>
-                  {badge ? (
+                  <VerificationStatusDot verified={isOwnerKycVerified} />
+                  {isVerifiedRequest ? (
+                    <VerifiedByPlzBadge compact />
+                  ) : badge ? (
                     <View style={styles.badge}>
                       <Text style={styles.badgeText}>{badge}</Text>
                     </View>
@@ -570,15 +1009,43 @@ export default function RequestDetailScreen() {
             )}
           </View>
 
-          {isAwaitingApproval ? (
-            <View style={styles.pendingApprovalBanner}>
-              <Ionicons name="hourglass-outline" size={22} color="#B45309" />
+          {ownerModerationStatus && ownerModerationMessage ? (
+            <View
+              style={[
+                styles.pendingApprovalBanner,
+                ownerModerationStatus === 'rejected' && styles.moderationBannerRejected,
+                ownerModerationStatus === 'flagged' && styles.moderationBannerFlagged,
+              ]}
+            >
+              <Ionicons
+                name={
+                  ownerModerationStatus === 'pending'
+                    ? 'hourglass-outline'
+                    : ownerModerationStatus === 'flagged'
+                      ? 'alert-circle-outline'
+                      : 'close-circle-outline'
+                }
+                size={22}
+                color={
+                  ownerModerationStatus === 'rejected'
+                    ? '#DC2626'
+                    : ownerModerationStatus === 'flagged'
+                      ? '#EA580C'
+                      : '#B45309'
+                }
+              />
               <View style={styles.pendingApprovalTextWrap}>
-                <Text style={styles.pendingApprovalTitle}>Pending approval</Text>
-                <Text style={styles.pendingApprovalSubtitle}>
-                  Your request isn&apos;t visible to the community yet. We&apos;ll notify you when it&apos;s
-                  approved.
-                </Text>
+                <View style={styles.moderationTitleRow}>
+                  <Text style={styles.pendingApprovalTitle}>
+                    {ownerModerationStatus === 'pending'
+                      ? 'Pending approval'
+                      : ownerModerationStatus === 'rejected'
+                        ? 'Request rejected'
+                        : 'Under review'}
+                  </Text>
+                  <ModerationStatusBadge status={ownerModerationStatus} compact />
+                </View>
+                <Text style={styles.pendingApprovalSubtitle}>{ownerModerationMessage}</Text>
               </View>
             </View>
           ) : null}
@@ -620,18 +1087,30 @@ export default function RequestDetailScreen() {
               <View
                 style={[
                   styles.timeBadge,
-                  timeRemaining === 'Expired' && styles.timeBadgeMuted,
+                  fundingBadgeMuted && styles.timeBadgeMuted,
+                  isWithdrawn && begStatus !== 'funded' && styles.timeBadgeWithdrawn,
                 ]}
               >
                 <Ionicons
-                  name="time-outline"
+                  name={
+                    isWithdrawn && begStatus !== 'funded'
+                      ? 'wallet-outline'
+                      : 'time-outline'
+                  }
                   size={14}
-                  color={timeRemaining === 'Expired' ? '#6B7280' : '#2E8BEA'}
+                  color={
+                    isWithdrawn && begStatus !== 'funded'
+                      ? '#4338CA'
+                      : fundingBadgeMuted
+                        ? '#6B7280'
+                        : '#2E8BEA'
+                  }
                 />
                 <Text
                   style={[
                     styles.timeBadgeText,
-                    timeRemaining === 'Expired' && styles.timeBadgeTextMuted,
+                    fundingBadgeMuted && styles.timeBadgeTextMuted,
+                    isWithdrawn && begStatus !== 'funded' && styles.timeBadgeTextWithdrawn,
                   ]}
                 >
                   {fundingPostedBadge}
@@ -654,13 +1133,13 @@ export default function RequestDetailScreen() {
                   </View>
                   <View style={styles.breakdownLine}>
                     <View style={styles.breakdownLabelRow}>
-                      <Text style={styles.breakdownLabel}>Platform fee (5%)</Text>
+                      <Text style={styles.breakdownLabel}>Platform fee ({PLATFORM_FEE_PERCENT}%)</Text>
                       <Ionicons name="information-circle-outline" size={16} color="#9CA3AF" />
                     </View>
                     <Text style={styles.breakdownValueMuted}>-{formatNaira(platformFee)}</Text>
                   </View>
                   <View style={styles.breakdownLine}>
-                    <Text style={styles.breakdownLabel}>VAT (7.5% of fee)</Text>
+                    <Text style={styles.breakdownLabel}>VAT ({VAT_ON_PLATFORM_FEE_PERCENT}% of fee)</Text>
                     <Text style={styles.breakdownValueMuted}>-{formatNaira(vatOnPlatformFee)}</Text>
                   </View>
                   <View style={[styles.breakdownLine, styles.breakdownLineLast]}>
@@ -672,21 +1151,145 @@ export default function RequestDetailScreen() {
             ) : null}
           </View>
 
-          {isOwner ? (
-            <RequestDonorList
-              donations={begDonations}
-              total={donorTotal}
-              loading={donorsLoading}
-            />
+          {canViewEvidence ? (
+            <View style={styles.evidencePanel}>
+              <View style={styles.evidenceHeader}>
+                <View style={styles.evidenceHeaderCopy}>
+                  <Text style={styles.evidenceTitle}>Evidence</Text>
+                  <Text style={styles.evidenceSubtitle}>
+                    {isOwner
+                      ? 'Photos are deleted when the request is fully funded.'
+                      : 'Shared by the requester to help donors review this request.'}
+                  </Text>
+                </View>
+                {isOwner ? (
+                  <Pressable
+                    style={styles.evidenceAddButton}
+                    onPress={() => void onAddEvidence()}
+                    disabled={evidenceUploading}
+                    accessibilityRole="button"
+                  >
+                    <Ionicons name="image-outline" size={17} color="#2E8BEA" />
+                    <Text style={styles.evidenceAddText}>
+                      {evidenceUploading ? 'Uploading…' : 'Add'}
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+              {evidenceLoading ? (
+                <Text style={styles.evidenceEmpty}>Loading evidence…</Text>
+              ) : evidence.length === 0 ? (
+                <Text style={styles.evidenceEmpty}>No evidence attached yet.</Text>
+              ) : (
+                evidence.map((item, index) => (
+                  <View key={item.id} style={styles.evidenceRow}>
+                    <View style={styles.evidenceRowCopy}>
+                      <Text style={styles.evidenceFileName} numberOfLines={1}>
+                        {item.fileName}
+                      </Text>
+                      <Text style={styles.evidenceMeta}>
+                        {item.fileType} · {Math.ceil(item.fileSize / 1024)} KB
+                        {item.isFlagged ? ' · Under review' : ''}
+                      </Text>
+                      {isOwner ? (
+                        <View style={styles.evidenceSensitiveRow}>
+                          <Text style={styles.evidenceSensitiveLabel}>Sensitive</Text>
+                          <Switch
+                            value={Boolean(item.isSensitive)}
+                            onValueChange={(next) => onToggleEvidenceSensitivity(item, next)}
+                            trackColor={{ false: '#E5E7EB', true: '#2E8BEA' }}
+                            thumbColor="#FFFFFF"
+                          />
+                        </View>
+                      ) : null}
+                    </View>
+                    {item.url ? (
+                      <Pressable
+                        style={styles.evidenceViewButton}
+                        onPress={() => {
+                          setSelectedEvidenceIndex(index);
+                          setEvidenceViewerOpen(true);
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`View evidence ${index + 1}`}
+                      >
+                        <Ionicons name="open-outline" size={18} color="#2E8BEA" />
+                        <Text style={styles.evidenceViewText}>View</Text>
+                      </Pressable>
+                    ) : null}
+                    {isOwner ? (
+                      <Pressable
+                        style={styles.evidenceIconButton}
+                        onPress={() => onDeleteEvidence(item)}
+                      >
+                        <Ionicons name="trash-outline" size={18} color="#DC2626" />
+                      </Pressable>
+                    ) : null}
+                  </View>
+                ))
+              )}
+            </View>
           ) : null}
 
           {isOwner ? (
-            <View style={styles.ownerNotice}>
-              <Ionicons name="information-circle-outline" size={22} color="#2E8BEA" />
-              <Text style={styles.ownerNoticeText}>
-                You can&apos;t donate to your own request. Share this request so others can contribute.
-              </Text>
-            </View>
+            <>
+              <RequestDonorList
+                donations={begDonations}
+                total={donorTotal}
+                loading={donorsLoading}
+              />
+
+              {ownerWithdrawalPending ? (
+                <View style={styles.withdrawProcessingNotice}>
+                  <Ionicons name="time-outline" size={22} color="#B45309" />
+                  <Text style={styles.withdrawProcessingText}>
+                    Your withdrawal is being processed. We&apos;ll notify you when it completes.
+                  </Text>
+                </View>
+              ) : null}
+
+              {ownerShowWithdrawCta ? (
+                <View style={styles.withdrawCtaBlock}>
+                  <CTAButton
+                    variant="gradient"
+                    label={
+                      ownerWithdrawEnabled
+                        ? withdrawNowActive
+                          ? `Withdraw now · ${formatNaira(raised)}`
+                          : `Withdraw ${formatNaira(raised)}`
+                        : 'Withdraw now'
+                    }
+                    onPress={onOwnerWithdrawPress}
+                    disabled={!ownerWithdrawEnabled}
+                    accessibilityLabel={
+                      ownerWithdrawEnabled
+                        ? withdrawNowActive
+                          ? `Withdraw now ${formatNaira(raised)}`
+                          : `Withdraw ${formatNaira(raised)}`
+                        : 'Withdraw now — no donations yet'
+                    }
+                  />
+                  {ownerWithdrawEnabled && withdrawNowActive ? (
+                    <Text style={styles.withdrawCtaHint}>
+                      Withdrawing will end this request and stop further donations.
+                    </Text>
+                  ) : !ownerWithdrawEnabled && raised <= 0 ? (
+                    <Text style={styles.withdrawCtaHint}>
+                      Withdraw opens once you receive your first donation.
+                    </Text>
+                  ) : null}
+                </View>
+              ) : null}
+
+              <View style={styles.ownerNotice}>
+                <Ionicons name="information-circle-outline" size={22} color="#2E8BEA" />
+                <Text style={styles.ownerNoticeText}>
+                  {ownerWithdrawEnabled
+                    ? 'Share this request so others can contribute before you withdraw.'
+                    : "You can't donate to your own request. Share this request so others can contribute."}
+                </Text>
+              </View>
+            </>
           ) : (
             <>
               {viewerDonation ? (
@@ -719,6 +1322,15 @@ export default function RequestDetailScreen() {
 
               {visitorCanDonate ? (
             <>
+              <View
+                ref={donationAnchorRef}
+                collapsable={false}
+                onLayout={() => {
+                  if (!pendingDonateScroll.current) return;
+                  pendingDonateScroll.current = false;
+                  requestAnimationFrame(() => scrollToDonationSection());
+                }}
+              />
               <Text style={styles.sectionTitle}>Choose Amount</Text>
               <View style={styles.amountGrid}>
                 {AMOUNT_OPTIONS.map((opt) => (
@@ -793,13 +1405,25 @@ export default function RequestDetailScreen() {
 
               <CTAButton
                 variant="gradient"
-                label={donationSubmitting ? 'Processing…' : 'Continue'}
+                label={
+                  donationSubmitting
+                    ? 'Processing…'
+                    : paymentRetryBlocked
+                      ? 'Payment pending'
+                      : 'Continue'
+                }
                 onPress={() => void onContinueDonation()}
-                disabled={donationSubmitting || Boolean(donationAmountError)}
+                disabled={
+                  donationSubmitting ||
+                  paymentRetryBlocked ||
+                  Boolean(donationAmountError)
+                }
               />
               {donationProgressMessage ? (
                 <Text style={styles.paymentProgressText}>{donationProgressMessage}</Text>
               ) : null}
+
+              <DonationTermsConsent />
 
               <Text style={styles.ctaSubtext}>
                 Only {formatNaira(amountNeeded)} needed to complete this request
@@ -820,6 +1444,30 @@ export default function RequestDetailScreen() {
         onDone={() => {
           setDonationThankYou(null);
           void loadRequest();
+        }}
+      />
+      <BegEvidenceViewerModal
+        visible={evidenceViewerOpen}
+        evidence={evidence}
+        selectedIndex={selectedEvidenceIndex}
+        loading={evidenceLoading}
+        onClose={() => setEvidenceViewerOpen(false)}
+        onSelectIndex={setSelectedEvidenceIndex}
+      />
+      <ReportContentSheet
+        visible={reportVisible}
+        target={reportTarget}
+        onClose={() => {
+          setReportVisible(false);
+          setReportTarget(null);
+        }}
+        onSubmit={async (body) => {
+          if (!reportTarget) return;
+          await withUnauthorizedRecovery(signOut, async (token) => {
+            if (reportTarget.type === 'beg') {
+              await reportBeg(token, reportTarget.id, body);
+            }
+          });
         }}
       />
     </Screen>
@@ -902,6 +1550,7 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
     marginBottom: 6,
+    minWidth: 0,
   },
   name: {
     fontSize: 18,
@@ -1013,6 +1662,9 @@ const styles = StyleSheet.create({
   timeBadgeMuted: {
     backgroundColor: '#F3F4F6',
   },
+  timeBadgeWithdrawn: {
+    backgroundColor: '#E0E7FF',
+  },
   timeBadgeText: {
     fontSize: 12,
     fontWeight: '600',
@@ -1020,6 +1672,9 @@ const styles = StyleSheet.create({
   },
   timeBadgeTextMuted: {
     color: '#6B7280',
+  },
+  timeBadgeTextWithdrawn: {
+    color: '#4338CA',
   },
   progressWrap: {
     marginBottom: 16,
@@ -1159,6 +1814,111 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 12,
   },
+  evidencePanel: {
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 16,
+    backgroundColor: '#FFFFFF',
+  },
+  evidenceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 10,
+  },
+  evidenceHeaderCopy: {
+    flex: 1,
+  },
+  evidenceTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  evidenceSubtitle: {
+    marginTop: 2,
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  evidenceAddButton: {
+    height: 38,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    backgroundColor: '#EFF6FF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  evidenceAddText: {
+    color: '#2E8BEA',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  evidenceEmpty: {
+    color: '#6B7280',
+    fontSize: 13,
+  },
+  evidenceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+  },
+  evidenceRowCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  evidenceFileName: {
+    color: '#1F2937',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  evidenceMeta: {
+    color: '#6B7280',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  evidenceSensitiveRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 6,
+  },
+  evidenceSensitiveLabel: {
+    fontSize: 12,
+    color: '#374151',
+  },
+  evidenceIconButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F9FAFB',
+  },
+  evidenceViewButton: {
+    minHeight: 34,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+  },
+  evidenceViewText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#2E8BEA',
+  },
   paymentProgressText: {
     fontSize: 13,
     fontWeight: '600',
@@ -1176,6 +1936,21 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     borderWidth: 1,
     borderColor: '#FCD34D',
+  },
+  moderationBannerRejected: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+  },
+  moderationBannerFlagged: {
+    backgroundColor: '#FFF7ED',
+    borderColor: '#FDBA74',
+  },
+  moderationTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+    marginBottom: 4,
   },
   pendingApprovalTextWrap: {
     flex: 1,
@@ -1209,6 +1984,35 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     color: '#1E40AF',
+    fontWeight: '500',
+  },
+  withdrawCtaBlock: {
+    marginBottom: 16,
+    gap: 10,
+  },
+  withdrawCtaHint: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#6B7280',
+    textAlign: 'center',
+    paddingHorizontal: 8,
+  },
+  withdrawProcessingNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: '#FFFBEB',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#FCD34D',
+  },
+  withdrawProcessingText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#92400E',
     fontWeight: '500',
   },
   donorNotice: {

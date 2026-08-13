@@ -1,6 +1,8 @@
 import * as ImagePicker from 'expo-image-picker';
 import { Alert, Platform } from 'react-native';
 
+import { ensurePermissionRationale } from '@/lib/compliance/media-permission';
+
 export const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
 export type PickedKycFile = { uri: string; name: string; type: string; base64?: string };
@@ -52,6 +54,10 @@ async function launchPicker(
   source: 'camera' | 'library',
   options: { base64?: boolean; cameraType?: ImagePicker.CameraType }
 ): Promise<PickedKycFile | null> {
+  const rationaleKind = source === 'camera' ? 'camera' : 'photos';
+  const proceed = await ensurePermissionRationale(rationaleKind);
+  if (!proceed) return null;
+
   const permission =
     source === 'camera'
       ? await ImagePicker.requestCameraPermissionsAsync()

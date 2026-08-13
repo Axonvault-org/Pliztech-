@@ -3,6 +3,7 @@ import { router } from 'expo-router';
 import { Fragment, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
+import { SupportContactCard } from '@/components/compliance/SupportContactCard';
 import { AppHeaderTitleRow } from '@/components/layout/AppHeaderTitleRow';
 import { Screen } from '@/components/Screen';
 import { Text } from '@/components/Text';
@@ -29,6 +30,8 @@ export default function HelpCenterScreen() {
           </View>
           <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
         </Pressable>
+
+        <SupportContactCard />
 
         <View style={styles.faqHeader}>
           <Text style={styles.sectionTitle}>FAQ</Text>
@@ -114,6 +117,33 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#6B7280',
     lineHeight: 18,
+  },
+  abuseCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    padding: 16,
+    gap: 6,
+  },
+  abuseTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#991B1B',
+  },
+  abuseText: {
+    fontSize: 13,
+    color: '#6B7280',
+    lineHeight: 18,
+  },
+  abuseEmail: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  abuseMeta: {
+    fontSize: 12,
+    color: '#9CA3AF',
   },
   faqHeader: {
     gap: 4,

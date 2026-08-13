@@ -46,7 +46,7 @@ export const TERMS_SECTIONS: LegalSection[] = [
   {
     title: '5. Fees and Payments',
     items: [
-      'Plz charges a 5% platform fee on all successful requests. A 7.5% VAT is applied to the platform fee, making the total fee deducted 5.375%.',
+      'Plz charges a 7% platform fee on all successful requests. A 7.5% VAT is applied to the platform fee, making the total fee deducted 7.525%.',
       'There is no fee for Donors to give money.',
       'All payments are processed by third-party payment gateways. By making a donation, you agree to the terms of those gateways.',
       'All donations are final and non-refundable. In cases of proven fraud, Plz will work with law enforcement and may, at its sole discretion, attempt to recover funds.',
@@ -165,11 +165,11 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
   },
   {
     title: '10. Children’s Privacy',
-    body: 'Plz is not intended for individuals under 18 years old.',
+    body: 'Plz is not directed at children under 13 and is not intended for anyone under 18 years old. We do not knowingly collect personal information from children under 13. If you believe a child has provided us data, contact support@plz.ng.',
   },
   {
     title: '11. Account Deletion',
-    body: 'You may request account deletion by contacting support. We may retain transaction records, fraud-related logs, and legal compliance data where required.',
+    body: 'You may delete your account at any time from Account Settings → Delete Account. You will be asked to confirm with your password. After deletion, your profile is removed and you are signed out. We may retain transaction records, fraud-related logs, and legal compliance data where required by law.',
   },
   {
     title: '12. Fraud Monitoring and System',
@@ -199,7 +199,9 @@ export const FAQ_SECTIONS: FaqSection[] = [
       },
       {
         question: 'Who can use Plz?',
-        answer: ['Anyone who creates an account and complies with our community rules can request or give support.'],
+        answer: [
+          'You must be at least 18 years old, legally able to enter a contract, and comply with our community rules to request or give support.',
+        ],
       },
       {
         question: 'What is the core idea of Plz?',
@@ -282,7 +284,14 @@ export const FAQ_SECTIONS: FaqSection[] = [
       {
         question: 'Do you take a cut of my donation?',
         answer: [
-          'Plz charges a 5% platform fee to the recipient on successful requests. The fee is deducted from the total raised before payout.',
+          'Plz charges a 7% platform fee to the recipient on successful requests. The fee is deducted from the total raised before payout.',
+        ],
+      },
+      {
+        question: 'Can I get a refund on my donation?',
+        answer: [
+          'Donations are voluntary gifts and are final and non-refundable, except where required by law or in cases of proven fraud that Plz investigates.',
+          'If you believe a request is fraudulent, report it in the app or email support@plz.ng.',
         ],
       },
     ],
@@ -309,5 +318,28 @@ export const FAQ_SECTIONS: FaqSection[] = [
         ],
       },
     ],
+  },
+];
+
+export const COMMUNITY_GUIDELINES_SECTIONS: LegalSection[] = [
+  {
+    title: 'Be honest',
+    body: 'Requests must truthfully describe your need. Do not mislead donors or impersonate others.',
+  },
+  {
+    title: 'Keep it respectful',
+    body: 'Harassment, hate speech, threats, and sexual or violent content are not allowed.',
+  },
+  {
+    title: 'No fraud or spam',
+    body: 'Do not create duplicate accounts, manipulate trust tiers, or solicit off-platform payments.',
+  },
+  {
+    title: 'Report problems',
+    body: 'Use the flag icon on requests, profiles, or stories to report content. Our team reviews reports and may remove content or suspend accounts.',
+  },
+  {
+    title: 'Full guidelines online',
+    body: 'See our complete Community Guidelines at plz.ng/guidelines for the latest rules and enforcement details.',
   },
 ];

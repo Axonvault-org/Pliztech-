@@ -2,6 +2,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Modal,
   Pressable,
   ScrollView,
@@ -11,6 +12,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ProfileSummaryCard } from '@/components/profile/ProfileSummaryCard';
+import { ReportContentSheet, type ReportTarget } from '@/components/safety/ReportContentSheet';
 import { Text } from '@/components/Text';
 import {
   avatarColorFromSeed,
@@ -18,12 +20,15 @@ import {
   initialsFromDisplayName,
   useCurrentUser,
 } from '@/contexts/CurrentUserContext';
+import { blockUser } from '@/lib/api/blocks';
+import { reportUser } from '@/lib/api/reports';
 import { getPublicMemberProfile, type PublicMemberProfile } from '@/lib/api/users';
 import { formatPlizApiErrorForUser } from '@/lib/api/types';
 import { getAccessToken } from '@/lib/auth/access-token';
 import {
   isUnauthorizedSessionError,
   recoverFromUnauthorized,
+  withUnauthorizedRecovery,
 } from '@/lib/auth/session-expired';
 
 function formatLocation(city?: string, state?: string): string | null {
@@ -39,10 +44,12 @@ export type MemberProfileModalProps = {
 
 export function MemberProfileModal({ visible, userId, onClose }: MemberProfileModalProps) {
   const insets = useSafeAreaInsets();
-  const { signOut } = useCurrentUser();
+  const { user, signOut } = useCurrentUser();
   const [profile, setProfile] = useState<PublicMemberProfile | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reportVisible, setReportVisible] = useState(false);
+  const isSelf = Boolean(user?.id && userId && user.id === userId);
 
   const load = useCallback(
     async (retryAfterRefresh = false) => {
@@ -158,10 +165,61 @@ export function MemberProfileModal({ visible, userId, onClose }: MemberProfileMo
                   <Text style={styles.locationValue}>{location}</Text>
                 </View>
               ) : null}
+              {!isSelf && userId ? (
+                <View style={styles.actionRow}>
+                  <Pressable
+                    style={styles.actionBtn}
+                    onPress={() => setReportVisible(true)}
+                  >
+                    <Ionicons name="flag-outline" size={18} color="#DC2626" />
+                    <Text style={styles.actionBtnTextDanger}>Report</Text>
+                  </Pressable>
+                  <Pressable
+                    style={styles.actionBtn}
+                    onPress={() =>
+                      Alert.alert('Block user?', 'They will not be able to donate to you and their requests will be hidden.', [
+                        { text: 'Cancel', style: 'cancel' },
+                        {
+                          text: 'Block',
+                          style: 'destructive',
+                          onPress: () =>
+                            void (async () => {
+                              try {
+                                await withUnauthorizedRecovery(signOut, (token) =>
+                                  blockUser(token, userId)
+                                );
+                                Alert.alert('User blocked');
+                                onClose();
+                              } catch (e) {
+                                Alert.alert('Could not block user', formatPlizApiErrorForUser(e));
+                              }
+                            })(),
+                        },
+                      ])
+                    }
+                  >
+                    <Ionicons name="ban-outline" size={18} color="#374151" />
+                    <Text style={styles.actionBtnText}>Block</Text>
+                  </Pressable>
+                </View>
+              ) : null}
             </>
           ) : null}
         </ScrollView>
       </View>
+      <ReportContentSheet
+        visible={reportVisible}
+        target={
+          userId
+            ? ({ type: 'user', id: userId, label: profile?.fullName } as ReportTarget)
+            : null
+        }
+        onClose={() => setReportVisible(false)}
+        onSubmit={async (body) => {
+          if (!userId) return;
+          await withUnauthorizedRecovery(signOut, (token) => reportUser(token, userId, body));
+        }}
+      />
     </Modal>
   );
 }
@@ -256,5 +314,32 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#1F2937',
+  },
+  actionRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 12,
+  },
+  actionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    paddingVertical: 12,
+  },
+  actionBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  actionBtnTextDanger: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#DC2626',
   },
 });

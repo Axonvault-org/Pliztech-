@@ -1,10 +1,18 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { router } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Switch, View } from 'react-native';
 
 import { Text } from '@/components/Text';
 
 import { AppHeaderTitleRow } from '@/components/layout/AppHeaderTitleRow';
 import { Screen } from '@/components/Screen';
+import {
+  getNotificationPreferences,
+  patchNotificationPreferences,
+} from '@/lib/api/notification-preferences';
+import { syncPushTokenRegistration } from '@/hooks/usePushNotifications';
+import { formatPlizApiErrorForUser } from '@/lib/api/types';
 
 const ACCENT_BLUE = '#2E8BEA';
 const BORDER_GRAY = '#E5E7EB';
@@ -102,6 +110,47 @@ function SettingsRow({
 }
 
 export default function AccountSettingsScreen() {
+  const [pushEnabled, setPushEnabled] = useState(true);
+  const [prefsLoading, setPrefsLoading] = useState(true);
+  const [prefsSaving, setPrefsSaving] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const prefs = await getNotificationPreferences();
+        if (!cancelled) {
+          setPushEnabled(prefs.pushEnabled);
+        }
+      } catch {
+        // Preferences unavailable — keep defaults
+      } finally {
+        if (!cancelled) setPrefsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const updatePref = useCallback(
+    async (patch: { pushEnabled?: boolean }) => {
+      setPrefsSaving(true);
+      try {
+        const prefs = await patchNotificationPreferences(patch);
+        setPushEnabled(prefs.pushEnabled);
+        if (patch.pushEnabled === true) {
+          await syncPushTokenRegistration();
+        }
+      } catch (e) {
+        Alert.alert('Notifications', formatPlizApiErrorForUser(e));
+      } finally {
+        setPrefsSaving(false);
+      }
+    },
+    []
+  );
+
   const handleLanguage = () => {
     Alert.alert(
       'Language',
@@ -109,19 +158,8 @@ export default function AccountSettingsScreen() {
     );
   };
 
-  const handleExportData = () => {
-    Alert.alert(
-      'Export my data',
-      'A full data export is processed on the server. Contact support from your profile email with the subject “Data export” and we will send your package when the export API is enabled for your account.'
-    );
-  };
-
   const handleDeleteAccount = () => {
-    Alert.alert(
-      'Delete account',
-      'Permanent account deletion must be confirmed by support to protect donors and recipients. Contact support to request deletion. This screen will call the delete API when it is available.',
-      [{ text: 'OK' }]
-    );
+    router.push('/(tabs)/delete-account' as import('expo-router').Href);
   };
 
   return (
@@ -151,15 +189,17 @@ export default function AccountSettingsScreen() {
 
       <SettingsSection title="Notification Preferences">
         <SettingsRow
-          icon="mail-outline"
-          title="Email Notifications"
-          subtitle="Receive updates via email"
-          badge="Coming soon"
+          icon="notifications-outline"
+          title="Push notifications"
+          subtitle="Alerts for donations, approvals, and support messages"
           showToggle
-          toggleValue={false}
-          onToggleChange={undefined}
-          disabled
-          isLast={false}
+          toggleValue={pushEnabled}
+          onToggleChange={(value) => {
+            setPushEnabled(value);
+            void updatePref({ pushEnabled: value });
+          }}
+          disabled={prefsLoading || prefsSaving}
+          isLast
         />
         <SettingsRow
           icon="call-outline"
@@ -174,20 +214,35 @@ export default function AccountSettingsScreen() {
         />
       </SettingsSection>
 
-      <SettingsSection title="Data & Privacy">
+      <SettingsSection title="Safety">
         <SettingsRow
-          icon="download-outline"
-          title="Export My Data"
-          subtitle="Download a copy of your data"
-          badge="Coming soon"
-          onPress={handleExportData}
+          icon="ban-outline"
+          title="Blocked users"
+          subtitle="Manage people you have blocked"
+          onPress={() => router.push('/(tabs)/blocked-users' as import('expo-router').Href)}
           isLast={false}
         />
         <SettingsRow
+          icon="eye-off-outline"
+          title="Hidden requests"
+          subtitle="Requests hidden from your feed"
+          onPress={() => router.push('/(tabs)/hidden-requests' as import('expo-router').Href)}
+          isLast={false}
+        />
+        <SettingsRow
+          icon="chatbubbles-outline"
+          title="Support messages"
+          subtitle="Direct chats and announcements from Plz"
+          onPress={() => router.push('/(tabs)/admin-messages' as import('expo-router').Href)}
+          isLast
+        />
+      </SettingsSection>
+
+      <SettingsSection title="Data & Privacy">
+        <SettingsRow
           icon="trash-outline"
           title="Delete Account"
-          subtitle="Permanently delete your account"
-          badge="Coming soon"
+          subtitle="Permanently delete your account and sign out"
           onPress={handleDeleteAccount}
           destructive
           isLast
