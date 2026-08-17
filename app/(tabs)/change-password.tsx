@@ -24,19 +24,12 @@ const SECTION_TITLE = '#6B7280';
 const BODY_GRAY = '#6B7280';
 const TITLE_DARK = '#1F2937';
 
-const PASSWORD_REGEX =
-  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,}$/;
-
 const schema = z
   .object({
     currentPassword: z.string().min(1, 'Enter your current password'),
     newPassword: z
       .string()
-      .min(8, 'At least 8 characters')
-      .regex(
-        PASSWORD_REGEX,
-        'Include upper & lower case, a number, and a special character (@$!%*?&#)'
-      ),
+      .min(8, 'At least 8 characters'),
     confirmPassword: z.string().min(1, 'Confirm your new password'),
   })
   .refine((data) => data.newPassword !== data.currentPassword, {
@@ -178,6 +171,7 @@ export default function ChangePasswordScreen() {
                 autoCapitalize="none"
                 autoCorrect={false}
                 textContentType="newPassword"
+                hint="Use upper & lower case, a number, and a special character"
                 error={errors.newPassword?.message}
               />
             )}
