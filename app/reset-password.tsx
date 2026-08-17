@@ -19,20 +19,12 @@ import { PlizApiError } from '@/lib/api/types';
 
 const LOGO = require('@/assets/images/pliz-logo.png');
 
-/** Aligns with pliz-backend `resetPasswordValidation` for `newPassword`. */
-const PASSWORD_REGEX =
-  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]+$/;
-
 const resetPasswordSchema = z
   .object({
     newPassword: z
       .string()
       .min(1, 'Password is required')
-      .min(8, 'Password must be at least 8 characters')
-      .regex(
-        PASSWORD_REGEX,
-        'Use upper & lower case, a number, and a special character (@$!%*?&#)'
-      ),
+      .min(8, 'Password must be at least 8 characters'),
     confirmPassword: z.string().min(1, 'Please confirm your password'),
   })
   .refine((data) => data.newPassword === data.confirmPassword, {
@@ -197,6 +189,7 @@ export default function ResetPasswordScreen() {
                   onBlur={onBlur}
                   secureTextEntry={!passwordVisible}
                   onToggleSecure={() => setPasswordVisible((v) => !v)}
+                  hint="Use upper & lower case, a number, and a special character"
                   error={errors.newPassword?.message}
                   accessibilityLabel="New password"
                 />
