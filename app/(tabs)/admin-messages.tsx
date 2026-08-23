@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -38,6 +39,7 @@ import {
 import { formatPlizApiErrorForUser } from '@/lib/api/types';
 import { withUnauthorizedRecovery } from '@/lib/auth/session-expired';
 import { useUnreadSupportMessageCount } from '@/hooks/useUnreadSupportMessageCount';
+import { navigateToHome } from '@/lib/navigation/home-navigation';
 
 const ACCENT = '#2E8BEA';
 
@@ -200,7 +202,14 @@ export default function AdminMessagesScreen() {
   const params = useLocalSearchParams<{
     chatId?: string | string[];
     broadcastId?: string | string[];
+    from?: string | string[];
   }>();
+  const fromNotification = useMemo(() => {
+    const raw = params.from;
+    if (typeof raw === 'string') return raw === 'notification';
+    if (Array.isArray(raw) && typeof raw[0] === 'string') return raw[0] === 'notification';
+    return false;
+  }, [params.from]);
   const deepLinkChatId = useMemo(() => {
     const raw = params.chatId;
     if (typeof raw === 'string' && raw.length > 0) return raw;
@@ -480,13 +489,28 @@ export default function AdminMessagesScreen() {
     setReplySentNotice(false);
   };
 
+  const onNotificationBack = fromNotification ? navigateToHome : backToInbox;
+
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS !== 'android' || !fromNotification) {
+        return undefined;
+      }
+      const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+        navigateToHome();
+        return true;
+      });
+      return () => subscription.remove();
+    }, [fromNotification])
+  );
+
   if (activeChat) {
     return (
       <Screen backgroundColor="#FFFFFF" contentStyle={styles.flex}>
         <AppHeaderTitleRow
           title={activeChat.admin.name}
           subtitle={activeChat.status === 'closed' ? 'Chat closed' : 'Plz Support'}
-          onPressBack={backToInbox}
+          onPressBack={onNotificationBack}
           backIconColor="#1F2937"
           showNotification={false}
           marginBottom={12}
@@ -579,7 +603,7 @@ export default function AdminMessagesScreen() {
         <AppHeaderTitleRow
           title={activeBroadcast.title}
           subtitle={activeBroadcast.hasReplied ? 'Announcement · You replied' : 'Announcement · Tap below to reply'}
-          onPressBack={backToInbox}
+          onPressBack={onNotificationBack}
           backIconColor="#1F2937"
           showNotification={false}
           marginBottom={12}
@@ -657,6 +681,7 @@ export default function AdminMessagesScreen() {
       <AppHeaderTitleRow
         title="Plz Support"
         subtitle="Inbox"
+        onPressBack={fromNotification ? navigateToHome : undefined}
         backIconColor="#1F2937"
         showNotification={false}
         marginBottom={12}
