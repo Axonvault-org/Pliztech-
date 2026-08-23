@@ -2,18 +2,15 @@ import { Redirect, Stack, useSegments } from 'expo-router';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
-import {
-  AUTHENTICATED_HOME,
-  SIGNUP_PROFILE,
-} from '@/lib/navigation/auth-navigation';
+import { AUTHENTICATED_HOME } from '@/lib/navigation/auth-navigation';
 
-const PROFILE_COMPLETION_ROUTES = new Set(['signup-profile', 'verify-email']);
+/** Signed-in users may stay on these auth routes (verify link, deferred profile completion). */
+const AUTH_ROUTES_WHILE_SIGNED_IN = new Set(['verify-email', 'signup-profile']);
 
 export default function AuthLayout() {
   const { user, isLoading } = useCurrentUser();
   const segments = useSegments();
   const routeName = segments[segments.length - 1] ?? '';
-  const onProfileCompletionRoute = PROFILE_COMPLETION_ROUTES.has(routeName);
 
   if (isLoading && !user) {
     return (
@@ -23,12 +20,8 @@ export default function AuthLayout() {
     );
   }
 
-  if (user?.isProfileComplete) {
+  if (user && !AUTH_ROUTES_WHILE_SIGNED_IN.has(routeName)) {
     return <Redirect href={AUTHENTICATED_HOME} />;
-  }
-
-  if (user && !user.isProfileComplete && !onProfileCompletionRoute) {
-    return <Redirect href={SIGNUP_PROFILE} />;
   }
 
   return (

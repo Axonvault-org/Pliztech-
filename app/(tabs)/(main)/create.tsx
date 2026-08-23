@@ -51,6 +51,7 @@ import {
   withUnauthorizedRecovery,
 } from '@/lib/auth/session-expired';
 import { formatAmountInput } from '@/lib/money/input-format';
+import { promptDonationRequestReadiness } from '@/lib/user/prompt-request-readiness';
 import {
   PLATFORM_FEE_PERCENT,
   VAT_ON_PLATFORM_FEE_PERCENT,
@@ -241,6 +242,10 @@ export default function CreateScreen() {
       return;
     }
 
+    if (!promptDonationRequestReadiness(user)) {
+      return;
+    }
+
     setPendingSubmit({
       ...data,
       showName: anonymousModeEnabled ? false : data.showName,
@@ -257,6 +262,10 @@ export default function CreateScreen() {
   const onConfirmSubmit = async () => {
     const data = pendingSubmit;
     if (!data || isSubmitting) return;
+
+    if (!promptDonationRequestReadiness(user)) {
+      return;
+    }
 
     const amountRequested = Number(data.amount.replace(/,/g, ''));
     const descriptionForApi = clampBegDescriptionForApi(data.description);

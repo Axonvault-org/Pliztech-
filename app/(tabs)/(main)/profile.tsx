@@ -7,6 +7,7 @@ import { Text } from '@/components/Text';
 
 import { AppHeaderTitleRow } from '@/components/layout/AppHeaderTitleRow';
 import { KycVerificationBanner } from '@/components/profile/KycVerificationBanner';
+import { ProfileCompletionBanner } from '@/components/profile/ProfileCompletionBanner';
 import { ProfileRow } from '@/components/profile/ProfileRow';
 import { ProfileSection } from '@/components/profile/ProfileSection';
 import { ProfileSummaryCard } from '@/components/profile/ProfileSummaryCard';
@@ -19,6 +20,7 @@ import {
   isDocumentVerified,
   useCurrentUser,
 } from '@/contexts/CurrentUserContext';
+import { needsProfileCompletion } from '@/lib/user/request-readiness';
 import { updateProfile } from '@/lib/api/profile';
 import {
   getNotificationPreferences,
@@ -100,7 +102,13 @@ export default function ProfileScreen() {
           previewPhoto
         />
 
-        {user && !isDocumentVerified(user) ? (
+        {user && needsProfileCompletion(user) ? (
+          <ProfileCompletionBanner
+            onPress={() => router.push('/(auth)/signup-profile' as import('expo-router').Href)}
+          />
+        ) : null}
+
+        {user && !needsProfileCompletion(user) && !isDocumentVerified(user) ? (
           <KycVerificationBanner onPress={() => router.push('/(tabs)/kyc-verification')} />
         ) : null}
 

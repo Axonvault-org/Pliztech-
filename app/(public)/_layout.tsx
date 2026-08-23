@@ -2,10 +2,7 @@ import { Redirect, Stack } from 'expo-router';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
-import {
-  AUTHENTICATED_HOME,
-  SIGNUP_PROFILE,
-} from '@/lib/navigation/auth-navigation';
+import { AUTHENTICATED_HOME } from '@/lib/navigation/auth-navigation';
 
 export default function PublicLayout() {
   const { user, isLoading } = useCurrentUser();
@@ -18,12 +15,8 @@ export default function PublicLayout() {
     );
   }
 
-  if (user?.isProfileComplete) {
+  if (user) {
     return <Redirect href={AUTHENTICATED_HOME} />;
-  }
-
-  if (user && !user.isProfileComplete) {
-    return <Redirect href={SIGNUP_PROFILE} />;
   }
 
   return (

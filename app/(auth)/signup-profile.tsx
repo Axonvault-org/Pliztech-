@@ -232,7 +232,7 @@ export default function SignupProfileScreen() {
         })
       );
       await refreshUser();
-      enterAuthenticatedApp('/(tabs)' as import('expo-router').Href);
+      enterAuthenticatedApp('/(tabs)/(main)' as import('expo-router').Href);
     } catch (e) {
       if (e instanceof PlizApiError) {
         applyApiFieldErrors(e);
@@ -252,6 +252,10 @@ export default function SignupProfileScreen() {
   };
 
   const onBack = () => {
+    if (accessToken) {
+      enterAuthenticatedApp('/(tabs)/(main)' as import('expo-router').Href);
+      return;
+    }
     router.back();
   };
 
@@ -281,7 +285,9 @@ export default function SignupProfileScreen() {
 
         <Text style={styles.appName}>Plz</Text>
         <Text style={styles.title}>Tell us about yourself</Text>
-        <Text style={styles.subtitle}>This helps build trust in our community</Text>
+        <Text style={styles.subtitle}>
+          Required before you submit a donation request — you can explore Plz without this for now
+        </Text>
 
         {!tokenChecked ? (
           <ActivityIndicator color={COLORS.brandBlue} style={styles.tokenLoading} />

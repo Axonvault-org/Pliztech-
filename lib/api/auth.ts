@@ -15,7 +15,7 @@ import {
 } from './types';
 
 /**
- * POST /api/auth/signup — create account (no token returned; verify email then complete profile).
+ * POST /api/auth/signup — create account (no token returned; verify email to sign in).
  */
 export async function signup(
   body: SignupRequestBody
