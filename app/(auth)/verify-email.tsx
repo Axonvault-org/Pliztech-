@@ -15,7 +15,6 @@ import { setTokens } from '@/lib/auth/access-token';
 import { resetSessionRecoveryState } from '@/lib/auth/session-expired';
 import {
   enterAuthenticatedApp,
-  enterSignupProfile,
 } from '@/lib/navigation/auth-navigation';
 
 const LOGO = require('@/assets/images/pliz-logo.png');
@@ -64,11 +63,7 @@ export default function VerifyEmailScreen() {
         await setTokens(result.accessToken, result.refreshToken);
         resetSessionRecoveryState();
         await refreshUser();
-        if (!result.user.isProfileComplete) {
-          enterSignupProfile();
-        } else {
-          enterAuthenticatedApp('/(tabs)' as import('expo-router').Href);
-        }
+        enterAuthenticatedApp('/(tabs)/(main)' as import('expo-router').Href);
       } catch (e) {
         if (cancelled) return;
         setStatus('error');
