@@ -1,8 +1,15 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
+import * as Linking from 'expo-linking';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  Platform,
+  Pressable,
+  StyleSheet,
+  View,
+} from 'react-native';
 
 import { Text } from '@/components/Text';
 
@@ -12,10 +19,10 @@ import { useCurrentUser } from '@/contexts/CurrentUserContext';
 import { verifyEmailWithToken } from '@/lib/api/auth';
 import { PlizApiError } from '@/lib/api/types';
 import { setTokens } from '@/lib/auth/access-token';
+import { getAuthHandoffNativeUrl } from '@/lib/auth/handoff-url';
 import { resetSessionRecoveryState } from '@/lib/auth/session-expired';
-import {
-  enterAuthenticatedApp,
-} from '@/lib/navigation/auth-navigation';
+import { isWebAuthEnvironment } from '@/lib/auth/web-auth';
+import { enterAuthenticatedApp } from '@/lib/navigation/auth-navigation';
 
 const LOGO = require('@/assets/images/pliz-logo.png');
 
@@ -25,6 +32,7 @@ const COLORS = {
   heading: '#1F2937',
   body: '#6B7280',
   error: '#DC2626',
+  success: '#059669',
 } as const;
 
 function pickTokenParam(
@@ -41,9 +49,13 @@ export default function VerifyEmailScreen() {
   }>();
   const token = useMemo(() => pickTokenParam(tokenParam), [tokenParam]);
   const { refreshUser } = useCurrentUser();
+  const isWeb = isWebAuthEnvironment() || Platform.OS === 'web';
 
-  const [status, setStatus] = useState<'loading' | 'error'>('loading');
+  const [status, setStatus] = useState<'loading' | 'success' | 'error'>(
+    'loading'
+  );
   const [message, setMessage] = useState<string | null>(null);
+  const [handoffCode, setHandoffCode] = useState<string | null>(null);
 
   useEffect(() => {
     if (!token) {
@@ -63,6 +75,14 @@ export default function VerifyEmailScreen() {
         await setTokens(result.accessToken, result.refreshToken);
         resetSessionRecoveryState();
         await refreshUser();
+
+        if (isWeb) {
+          setHandoffCode(result.handoffCode);
+          setStatus('success');
+          setMessage('Your email is verified. You can continue here or open the Plz app.');
+          return;
+        }
+
         enterAuthenticatedApp('/(tabs)/(main)' as import('expo-router').Href);
       } catch (e) {
         if (cancelled) return;
@@ -78,7 +98,32 @@ export default function VerifyEmailScreen() {
     return () => {
       cancelled = true;
     };
-  }, [token, refreshUser]);
+  }, [token, refreshUser, isWeb]);
+
+  const openNativeApp = useCallback(async () => {
+    if (!handoffCode) return;
+    const url = getAuthHandoffNativeUrl(handoffCode);
+    try {
+      const canOpen = await Linking.canOpenURL(url);
+      if (canOpen) {
+        await Linking.openURL(url);
+      } else {
+        setMessage(
+          'Could not open the Plz app. Install it from the store, or continue on web below.'
+        );
+        setStatus('error');
+      }
+    } catch {
+      setMessage(
+        'Could not open the Plz app. Install it from the store, or continue on web below.'
+      );
+      setStatus('error');
+    }
+  }, [handoffCode]);
+
+  const continueOnWeb = useCallback(() => {
+    enterAuthenticatedApp('/(tabs)/(main)' as import('expo-router').Href);
+  }, []);
 
   return (
     <Screen
@@ -101,9 +146,9 @@ export default function VerifyEmailScreen() {
     >
       <View style={styles.hero}>
         <Image source={LOGO} style={styles.logo} contentFit="contain" />
-        <Text style={styles.title}>Verifying your email</Text>
         {status === 'loading' && (
           <>
+            <Text style={styles.title}>Verifying your email</Text>
             <ActivityIndicator
               size="large"
               color={COLORS.brandBlue}
@@ -112,10 +157,35 @@ export default function VerifyEmailScreen() {
             <Text style={styles.subtitle}>One moment…</Text>
           </>
         )}
+        {status === 'success' && (
+          <>
+            <Text style={styles.successMark}>✓</Text>
+            <Text style={styles.title}>Email verified</Text>
+            {message ? <Text style={styles.subtitle}>{message}</Text> : null}
+            <View style={styles.ctaWrap}>
+              <CTAButton label="Open Plz app" onPress={() => void openNativeApp()} />
+              <Pressable
+                style={styles.secondaryBtn}
+                onPress={continueOnWeb}
+                accessibilityRole="button"
+                accessibilityLabel="Continue on web"
+              >
+                <Text style={styles.secondaryBtnLabel}>Continue on web</Text>
+              </Pressable>
+            </View>
+          </>
+        )}
         {status === 'error' && message && (
           <>
+            <Text style={styles.title}>Verification failed</Text>
             <Text style={styles.errorText}>{message}</Text>
             <View style={styles.ctaWrap}>
+              {handoffCode ? (
+                <CTAButton
+                  label="Open Plz app"
+                  onPress={() => void openNativeApp()}
+                />
+              ) : null}
               <CTAButton
                 label="Back to sign in"
                 onPress={() =>
@@ -158,10 +228,18 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: COLORS.body,
     textAlign: 'center',
-    marginTop: 12,
+    marginTop: 4,
+    marginBottom: 24,
+    lineHeight: 24,
+    paddingHorizontal: 8,
   },
   spinner: {
     marginTop: 8,
+  },
+  successMark: {
+    fontSize: 48,
+    color: COLORS.success,
+    marginBottom: 12,
   },
   errorText: {
     fontSize: 15,
@@ -169,10 +247,21 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 22,
     marginBottom: 24,
+    paddingHorizontal: 8,
   },
   ctaWrap: {
     alignSelf: 'stretch',
     maxWidth: 320,
     width: '100%',
+    gap: 12,
+  },
+  secondaryBtn: {
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  secondaryBtnLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.brandBlue,
   },
 });
