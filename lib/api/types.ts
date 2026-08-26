@@ -281,6 +281,11 @@ export type LoginSuccessData = {
   refreshToken: string;
 };
 
+/** GET /api/auth/verify-email — includes one-time code for native app handoff */
+export type VerifyEmailSuccessData = LoginSuccessData & {
+  handoffCode: string;
+};
+
 /** POST /api/auth/google | /api/auth/apple — same tokens as password login + navigation hints */
 export type OAuthLoginSuccessData = LoginSuccessData & {
   isNewUser: boolean;

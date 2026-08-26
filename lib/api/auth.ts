@@ -11,6 +11,7 @@ import {
   type OAuthLoginSuccessData,
   type SignupRequestBody,
   type SignupSuccessResponse,
+  type VerifyEmailSuccessData,
   PlizApiError,
 } from './types';
 
@@ -58,7 +59,7 @@ export async function signup(
  */
 export async function verifyEmailWithToken(
   token: string
-): Promise<LoginSuccessData> {
+): Promise<VerifyEmailSuccessData> {
   const res = await fetch(
     apiUrl(`/api/auth/verify-email?token=${encodeURIComponent(token.trim())}`),
     {
@@ -69,6 +70,54 @@ export async function verifyEmailWithToken(
       credentials: isWebAuthEnvironment() ? 'include' : 'omit',
     }
   );
+
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    throw new PlizApiError('Invalid response from server', res.status);
+  }
+
+  const data = json as {
+    success?: boolean;
+    message?: string;
+    errors?: { field: string; message: string }[];
+    data?: VerifyEmailSuccessData;
+  };
+
+  if (!res.ok || data.success !== true) {
+    throw new PlizApiError(
+      data.message ?? `Request failed (${res.status})`,
+      res.status,
+      Array.isArray(data.errors) ? data.errors : []
+    );
+  }
+
+  if (
+    !data.data?.accessToken ||
+    !data.data?.refreshToken ||
+    !data.data?.handoffCode
+  ) {
+    throw new PlizApiError('Unexpected response shape', res.status);
+  }
+
+  return data.data;
+}
+
+/**
+ * POST /api/auth/handoff — exchange one-time code for session (native after web verify).
+ */
+export async function exchangeHandoffCode(
+  code: string
+): Promise<LoginSuccessData> {
+  const res = await fetch(apiUrl('/api/auth/handoff'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({ code: code.trim() }),
+  });
 
   let json: unknown;
   try {
