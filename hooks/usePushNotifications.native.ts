@@ -1,5 +1,6 @@
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
+import * as Linking from 'expo-linking';
 import * as Notifications from 'expo-notifications';
 import { useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
@@ -19,6 +20,57 @@ Notifications.setNotificationHandler({
 });
 
 let lastRegisteredToken: string | null = null;
+
+/** Dedupe cold-start replay + listener double-fire for the same OS notification tap. */
+const handledNotificationResponseIds = new Set<string>();
+let coldStartNotificationChecked = false;
+
+function notificationResponseId(
+  response: Notifications.NotificationResponse
+): string {
+  const requestId = response.notification.request.identifier;
+  const actionId = response.actionIdentifier ?? 'default';
+  return `${requestId}:${actionId}`;
+}
+
+function handleNotificationResponse(response: Notifications.NotificationResponse): void {
+  const id = notificationResponseId(response);
+  if (handledNotificationResponseIds.has(id)) return;
+  handledNotificationResponseIds.add(id);
+
+  const data = response.notification.request.content.data as
+    | Record<string, unknown>
+    | undefined;
+  navigateFromPushNotificationData(data);
+}
+
+async function handleColdStartNotificationResponse(): Promise<void> {
+  if (coldStartNotificationChecked) return;
+  coldStartNotificationChecked = true;
+
+  const initialUrl = await Linking.getInitialURL();
+  if (initialUrl && shouldSkipColdStartPushNavigation(initialUrl)) {
+    return;
+  }
+
+  const response = await Notifications.getLastNotificationResponseAsync();
+  if (response) {
+    handleNotificationResponse(response);
+  }
+}
+
+/** Deep-link entry points handle their own navigation — do not replay stale push taps. */
+function shouldSkipColdStartPushNavigation(url: string): boolean {
+  const path = (Linking.parse(url).path ?? '').replace(/^\//, '');
+  return (
+    path === 'handoff' ||
+    path.startsWith('handoff/') ||
+    path === 'payment/callback' ||
+    path.startsWith('payment/callback') ||
+    path === 'verify-email' ||
+    path.startsWith('verify-email/')
+  );
+}
 
 export function getLastRegisteredPushToken(): string | null {
   return lastRegisteredToken;
@@ -104,23 +156,17 @@ export function usePushNotifications(enabled: boolean): void {
 
     void syncPushTokenRegistration();
 
-    void Notifications.getLastNotificationResponseAsync().then((response) => {
-      if (response) {
-        const data = response.notification.request.content.data as
-          | Record<string, unknown>
-          | undefined;
-        navigateFromPushNotificationData(data);
-      }
-    });
+    void handleColdStartNotificationResponse();
 
     receivedListener.current = Notifications.addNotificationReceivedListener(() => {
       /* Foreground delivery — inbox refetch handled by focus hooks */
     });
 
-    responseListener.current = Notifications.addNotificationResponseReceivedListener((response) => {
-      const data = response.notification.request.content.data as Record<string, unknown> | undefined;
-      navigateFromPushNotificationData(data);
-    });
+    responseListener.current = Notifications.addNotificationResponseReceivedListener(
+      (response) => {
+        handleNotificationResponse(response);
+      }
+    );
 
     return () => {
       receivedListener.current?.remove();

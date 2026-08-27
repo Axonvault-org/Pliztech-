@@ -1,7 +1,7 @@
 import { type Href } from 'expo-router';
 
 import { isSupportMessagesNotificationType } from '@/lib/api/notifications';
-import { pushWithHomeBehind } from '@/lib/navigation/home-navigation';
+import { navigateToHome, pushWithHomeBehind } from '@/lib/navigation/home-navigation';
 import { navigateToSupportFromNotification } from '@/lib/navigation/in-app-notification-navigation';
 import { navigateToBegDetailOrPastOverlay } from '@/lib/navigation/post-donation-navigation';
 
@@ -23,6 +23,7 @@ export function navigateFromPushNotificationData(
   const chatId = readId(data, 'chat_id', 'chatId');
   const broadcastId = readId(data, 'broadcast_id', 'broadcastId');
   const begId = readId(data, 'beg_id', 'begId');
+  const notificationId = readId(data, 'notification_id', 'notificationId');
 
   if (isSupportMessagesNotificationType(type) || chatId || broadcastId) {
     navigateToSupportFromNotification({ chatId, broadcastId });
@@ -34,5 +35,10 @@ export function navigateFromPushNotificationData(
     return;
   }
 
-  pushWithHomeBehind('/(tabs)/notifications' as Href);
+  if (notificationId) {
+    pushWithHomeBehind('/(tabs)/notifications' as Href);
+    return;
+  }
+
+  navigateToHome();
 }
