@@ -1,4 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, StyleSheet, View } from 'react-native';
@@ -35,6 +36,7 @@ import {
 import { useProfilePictureQuery } from '@/hooks/queries/useHomeQueries';
 
 export default function ProfileScreen() {
+  const appVersion = Constants.expoConfig?.version ?? '—';
   const { user, isLoading, refreshUser, signOut } = useCurrentUser();
   const [anonToggling, setAnonToggling] = useState(false);
   const profilePictureQuery = useProfilePictureQuery(signOut);
@@ -232,7 +234,7 @@ export default function ProfileScreen() {
           <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
         </Pressable>
 
-        <Text style={styles.version}>Plz v1.0.0</Text>
+        <Text style={styles.version}>Plz v{appVersion}</Text>
       </View>
     </Screen>
   );
