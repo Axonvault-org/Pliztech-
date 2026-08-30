@@ -9,6 +9,7 @@ import {
 } from '@/lib/api/donations';
 import {
   referenceFromPaymentRedirectUrl,
+  statusFromPaymentRedirectUrl,
   transactionIdFromPaymentRedirectUrl,
 } from '@/lib/donation/payment-callback-url';
 
@@ -141,11 +142,16 @@ export async function openPaymentCheckout(
           options?.onStatusChange?.('redirected');
           const redirectedReference = referenceFromPaymentRedirectUrl(browserResult.url);
           const redirectedTransactionId = transactionIdFromPaymentRedirectUrl(browserResult.url);
+          const redirectedStatus = statusFromPaymentRedirectUrl(browserResult.url);
           if (
             paymentReference &&
             redirectedReference &&
             redirectedReference !== paymentReference
           ) {
+            finish({ outcome: 'cancelled' });
+            return;
+          }
+          if (redirectedStatus === 'cancelled' || redirectedStatus === 'canceled') {
             finish({ outcome: 'cancelled' });
             return;
           }
@@ -157,6 +163,11 @@ export async function openPaymentCheckout(
               verifiedRef.value = result;
             }
           }
+        } else {
+          // Native browser close/dismiss is a cancellation request. The caller
+          // asks the backend for provider-authoritative status before clearing.
+          finish({ outcome: 'cancelled' });
+          return;
         }
 
         if (finishIfVerified()) return;

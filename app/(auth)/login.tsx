@@ -21,7 +21,6 @@ import { setTokens } from '@/lib/auth/access-token';
 import { resetSessionRecoveryState } from '@/lib/auth/session-expired';
 import {
   enterAuthenticatedApp,
-  enterSignupProfile,
 } from '@/lib/navigation/auth-navigation';
 
 const LOGO = require('@/assets/images/pliz-logo.png');
@@ -85,12 +84,7 @@ export default function LoginScreen() {
       await setTokens(result.accessToken, result.refreshToken);
       resetSessionRecoveryState();
       await refreshUser();
-
-      if (!result.user.isProfileComplete) {
-        enterSignupProfile();
-      } else {
-        enterAuthenticatedApp('/(tabs)' as import('expo-router').Href);
-      }
+      enterAuthenticatedApp('/(tabs)/(main)' as import('expo-router').Href);
     } catch (e) {
       if (e instanceof PlizApiError) {
         const emailVerificationRequired =
@@ -174,8 +168,8 @@ export default function LoginScreen() {
 
           {registered === '1' ? (
             <Text style={styles.successBanner}>
-              Account created. Check your inbox and spam folder for the verification email, then sign in to
-              complete your profile.
+              Account created. Check your inbox and spam folder for the verification email — tap the
+              link to sign in and start exploring Plz.
             </Text>
           ) : null}
 

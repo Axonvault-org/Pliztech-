@@ -1,4 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, StyleSheet, View } from 'react-native';
@@ -7,6 +8,7 @@ import { Text } from '@/components/Text';
 
 import { AppHeaderTitleRow } from '@/components/layout/AppHeaderTitleRow';
 import { KycVerificationBanner } from '@/components/profile/KycVerificationBanner';
+import { ProfileCompletionBanner } from '@/components/profile/ProfileCompletionBanner';
 import { ProfileRow } from '@/components/profile/ProfileRow';
 import { ProfileSection } from '@/components/profile/ProfileSection';
 import { ProfileSummaryCard } from '@/components/profile/ProfileSummaryCard';
@@ -19,6 +21,7 @@ import {
   isDocumentVerified,
   useCurrentUser,
 } from '@/contexts/CurrentUserContext';
+import { needsProfileCompletion } from '@/lib/user/request-readiness';
 import { updateProfile } from '@/lib/api/profile';
 import {
   getNotificationPreferences,
@@ -33,6 +36,7 @@ import {
 import { useProfilePictureQuery } from '@/hooks/queries/useHomeQueries';
 
 export default function ProfileScreen() {
+  const appVersion = Constants.expoConfig?.version ?? '—';
   const { user, isLoading, refreshUser, signOut } = useCurrentUser();
   const [anonToggling, setAnonToggling] = useState(false);
   const profilePictureQuery = useProfilePictureQuery(signOut);
@@ -100,7 +104,13 @@ export default function ProfileScreen() {
           previewPhoto
         />
 
-        {user && !isDocumentVerified(user) ? (
+        {user && needsProfileCompletion(user) ? (
+          <ProfileCompletionBanner
+            onPress={() => router.push('/(auth)/signup-profile' as import('expo-router').Href)}
+          />
+        ) : null}
+
+        {user && !needsProfileCompletion(user) && !isDocumentVerified(user) ? (
           <KycVerificationBanner onPress={() => router.push('/(tabs)/kyc-verification')} />
         ) : null}
 
@@ -224,7 +234,7 @@ export default function ProfileScreen() {
           <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
         </Pressable>
 
-        <Text style={styles.version}>Plz v1.0.0</Text>
+        <Text style={styles.version}>Plz v{appVersion}</Text>
       </View>
     </Screen>
   );

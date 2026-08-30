@@ -1,5 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { router, useFocusEffect } from 'expo-router';
+import { useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -27,7 +27,6 @@ import {
 } from '@/lib/api/beg';
 import {
   getNotifications,
-  isSupportMessagesNotificationType,
   mapApiNotificationToListItem,
   markAllNotificationsRead,
   markNotificationRead,
@@ -39,6 +38,9 @@ import {
   isUnauthorizedSessionError,
   recoverFromUnauthorized,
 } from '@/lib/auth/session-expired';
+import { useHardwareBackToHome } from '@/hooks/useHardwareBackToHome';
+import { navigateToHome } from '@/lib/navigation/home-navigation';
+import { navigateFromInAppNotification } from '@/lib/navigation/in-app-notification-navigation';
 import { navigateToBegDetailOrPastOverlay } from '@/lib/navigation/post-donation-navigation';
 
 const ACCENT_BLUE = '#2E8BEA';
@@ -153,6 +155,8 @@ export default function NotificationsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useHardwareBackToHome();
 
   const loadNotifications = useCallback(
     async (opts?: { background?: boolean; _retryAfterRefresh?: boolean }) => {
@@ -323,24 +327,7 @@ export default function NotificationsScreen() {
       }
     }
 
-    if (
-      isSupportMessagesNotificationType(item.notificationType) ||
-      item.chatId ||
-      item.broadcastId
-    ) {
-      router.push({
-        pathname: '/(tabs)/admin-messages',
-        params: {
-          ...(item.chatId ? { chatId: item.chatId } : {}),
-          ...(item.broadcastId ? { broadcastId: item.broadcastId } : {}),
-        },
-      });
-      return;
-    }
-
-    if (item.begId) {
-      void navigateToBegDetailOrPastOverlay(item.begId);
-    }
+    navigateFromInAppNotification(item);
   };
 
   return (
@@ -348,6 +335,7 @@ export default function NotificationsScreen() {
       <AppHeaderTitleRow
         title="Notifications"
         subtitle={unreadCount > 0 ? `${unreadCount} unread` : undefined}
+        onPressBack={navigateToHome}
         showNotification={false}
         rightSlot={
           unreadCount > 0 ? (

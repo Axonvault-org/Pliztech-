@@ -5,10 +5,14 @@ const KEY = 'pliz_pending_payment_checkout';
 const LEGACY_KEY = 'pliz_pending_paystack_checkout';
 
 export type PendingPaymentCheckout = {
-  version: 1;
+  version: 1 | 2;
   reference: string;
   paymentUrl: string;
   redirectUrl?: string;
+  /** Request-form state used to restore a cancelled web checkout. */
+  begId?: string;
+  amount?: number;
+  showRecipientName?: boolean;
 };
 
 function webGetItem(key: string): string | null {
@@ -70,7 +74,7 @@ async function removeRaw(key: string): Promise<void> {
 export async function savePendingPaymentCheckout(
   data: Omit<PendingPaymentCheckout, 'version'>
 ): Promise<void> {
-  const payload: PendingPaymentCheckout = { ...data, version: 1 };
+  const payload: PendingPaymentCheckout = { ...data, version: 2 };
   const json = JSON.stringify(payload);
   await writeRaw(KEY, json);
   await removeRaw(LEGACY_KEY);
@@ -85,7 +89,7 @@ export async function readPendingPaymentCheckout(
     try {
       const parsed = JSON.parse(raw) as Partial<PendingPaymentCheckout>;
       if (
-        parsed?.version !== 1 ||
+        (parsed?.version !== 1 && parsed?.version !== 2) ||
         parsed.reference !== reference ||
         typeof parsed.paymentUrl !== 'string'
       ) {

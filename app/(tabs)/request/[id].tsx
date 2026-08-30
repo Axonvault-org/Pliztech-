@@ -39,7 +39,15 @@ import {
     begFeedItemToRequestDetail,
     getBegById,
 } from '@/lib/api/beg';
-import { initializeDonation, getBegDonations, type BegDonationApiItem } from '@/lib/api/donations';
+import {
+  cancelDonationByReference,
+  getBegDonations,
+  initializeDonation,
+  verifyDonationByReference,
+  waitForDonationVerification,
+  type BegDonationApiItem,
+  type CancelDonationApiResult,
+} from '@/lib/api/donations';
 import {
   deleteBegEvidence,
   getBegEvidence,
@@ -52,8 +60,18 @@ import { reportBeg } from '@/lib/api/reports';
 import { getReactions, toggleReaction, type ReactionsPayload } from '@/lib/api/reactions';
 import { formatPlizApiErrorForUser } from '@/lib/api/types';
 import { getPaymentDonationCallbackUrl, getPaymentWebCallbackUrl } from '@/lib/donation/payment-callback-url';
-import { savePendingDonationThankYou } from '@/lib/donation/pending-thank-you';
-import { savePendingPaymentCheckout } from '@/lib/donation/pending-payment-checkout';
+import {
+  clearPendingDonationThankYou,
+  savePendingDonationThankYou,
+} from '@/lib/donation/pending-thank-you';
+import {
+  clearPendingPaymentCheckout,
+  savePendingPaymentCheckout,
+} from '@/lib/donation/pending-payment-checkout';
+import {
+  markPaymentCheckoutActive,
+  markPaymentCheckoutInactive,
+} from '@/lib/donation/payment-return-session';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
 import * as ImagePicker from 'expo-image-picker';
 import { openPaymentCheckout } from '@/lib/utils/open-payment-checkout';
@@ -141,7 +159,12 @@ export default function RequestDetailScreen() {
     defaultOnBlocked,
   } = useRequestSafetyActions();
   const anonymousModeEnabled = user?.profile?.isAnonymous ?? false;
-  const params = useLocalSearchParams<{ id: string; donate?: string }>();
+  const params = useLocalSearchParams<{
+    id: string;
+    donate?: string;
+    restoreAmount?: string;
+    restoreShowName?: string;
+  }>();
   const id = typeof params.id === 'string' ? params.id : params.id?.[0];
   const donateIntent = params.donate === '1' || params.donate === 'true';
 
@@ -423,6 +446,7 @@ export default function RequestDetailScreen() {
   const [showName, setShowName] = useState(true);
   const [donationSubmitting, setDonationSubmitting] = useState(false);
   const [donationProgressMessage, setDonationProgressMessage] = useState('');
+  const [paymentRetryBlocked, setPaymentRetryBlocked] = useState(false);
   const [donationThankYou, setDonationThankYou] = useState<{
     amount: number;
     recipientName: string;
@@ -443,11 +467,28 @@ export default function RequestDetailScreen() {
 
   useEffect(() => {
     if (!requestId) return;
+    const restoredAmount = Number(
+      typeof params.restoreAmount === 'string' ? params.restoreAmount : ''
+    );
+    if (Number.isFinite(restoredAmount) && restoredAmount >= MIN_DONATION_AMOUNT) {
+      const preset = AMOUNT_OPTIONS.find((option) => option.value === restoredAmount);
+      setSelectedAmount(preset?.value ?? null);
+      setCustomAmount(preset ? '' : String(restoredAmount));
+      setShowName(anonymousModeEnabled ? false : params.restoreShowName !== 'false');
+      setAmountTouched(false);
+      return;
+    }
     const { selected, custom } = defaultDonationSelection(amountNeeded);
     setSelectedAmount(selected);
     setCustomAmount(custom);
     setAmountTouched(false);
-  }, [requestId, amountNeeded]);
+  }, [
+    requestId,
+    amountNeeded,
+    anonymousModeEnabled,
+    params.restoreAmount,
+    params.restoreShowName,
+  ]);
 
   const parsedCustomAmount = useMemo(() => {
     const parsed = parseInt(digitsOnly(customAmount), 10);
@@ -475,6 +516,13 @@ export default function RequestDetailScreen() {
 
   const onContinueDonation = useCallback(async () => {
     if (donationSubmitting) return;
+    if (paymentRetryBlocked) {
+      Alert.alert(
+        'Payment still processing',
+        'Wait for the current payment to reach a final status before starting another attempt.'
+      );
+      return;
+    }
     setAmountTouched(true);
     if (!id?.trim()) {
       Alert.alert('Request', 'Missing request id. Go back and open the request again.');
@@ -525,6 +573,15 @@ export default function RequestDetailScreen() {
           }
         }
 
+        await savePendingPaymentCheckout({
+          reference: result.paymentReference,
+          paymentUrl: result.paymentUrl,
+          redirectUrl: callbackUrl,
+          begId: id,
+          amount: rawAmount,
+          showRecipientName: effectiveShowName,
+        });
+
         if (Platform.OS === 'web') {
           await openPaymentCheckout(result.paymentUrl, {
             redirectUrl: callbackUrl,
@@ -533,19 +590,94 @@ export default function RequestDetailScreen() {
           return;
         }
 
-        // Native: one completion surface — callback opens checkout, verifies, and shows thank-you.
-        await savePendingPaymentCheckout({
-          reference: result.paymentReference,
-          paymentUrl: result.paymentUrl,
+        // Keep this screen mounted so browser dismissal restores the exact form state.
+        markPaymentCheckoutActive(result.paymentReference);
+        const checkoutResult = await openPaymentCheckout(result.paymentUrl, {
           redirectUrl: callbackUrl,
+          paymentReference: result.paymentReference,
+          skipNavigation: true,
         });
-        router.replace({
-          pathname: '/payment/callback',
-          params: {
-            reference: result.paymentReference,
-            checkout: '1',
-          },
-        });
+        markPaymentCheckoutInactive(result.paymentReference);
+
+        if (checkoutResult.outcome === 'completed' && checkoutResult.verifiedResult?.success) {
+          await Promise.all([
+            clearPendingPaymentCheckout(),
+            clearPendingDonationThankYou(),
+          ]);
+          setDonationThankYou({
+            amount: rawAmount,
+            recipientName: request?.name ?? 'the recipient',
+            showRecipientName: effectiveShowName,
+            donationId: result.donationId,
+          });
+          void loadRequest();
+          return;
+        }
+
+        if (checkoutResult.outcome === 'cancelled') {
+          setDonationProgressMessage('Checking payment status…');
+          let cancellation: CancelDonationApiResult;
+          try {
+            cancellation = await withUnauthorizedRecovery(signOut, (token) =>
+              cancelDonationByReference(token, result.paymentReference)
+            );
+          } catch (error) {
+            setPaymentRetryBlocked(true);
+            Alert.alert(
+              'Could not cancel payment',
+              `${formatPlizApiErrorForUser(error)}\n\nThe checkout is closed, but its payment status is unchanged. Do not retry until you can confirm the status.`
+            );
+            return;
+          }
+
+          if (cancellation.status === 'cancelled' || cancellation.status === 'canceled') {
+            setPaymentRetryBlocked(false);
+            await Promise.all([
+              clearPendingPaymentCheckout(),
+              clearPendingDonationThankYou(),
+            ]);
+            Alert.alert(
+              'Payment cancelled',
+              cancellation.canRetry
+                ? `${cancellation.message}\n\nYou can try again now or choose another method in checkout.`
+                : cancellation.message
+            );
+            return;
+          }
+
+          if (['successful', 'succeeded', 'completed'].includes(cancellation.status)) {
+            const verified =
+              (await waitForDonationVerification(result.paymentReference, {
+                maxAttempts: 8,
+                intervalMs: 1500,
+              })) ?? (await verifyDonationByReference(result.paymentReference));
+            if (verified.success) {
+              setPaymentRetryBlocked(false);
+              await Promise.all([
+                clearPendingPaymentCheckout(),
+                clearPendingDonationThankYou(),
+              ]);
+              setDonationThankYou({
+                amount: rawAmount,
+                recipientName: request?.name ?? 'the recipient',
+                showRecipientName: effectiveShowName,
+                donationId: result.donationId,
+              });
+              void loadRequest();
+              return;
+            }
+          }
+
+          setPaymentRetryBlocked(!cancellation.canRetry);
+          Alert.alert(
+            'Cancellation unavailable',
+            `${cancellation.message}\n\nProvider status: ${cancellation.status}. ${
+              cancellation.canRetry
+                ? 'You can retry with another payment method.'
+                : 'Do not retry until this payment reaches a final status.'
+            }`
+          );
+        }
         return;
       } else {
         if (request) {
@@ -573,13 +705,13 @@ export default function RequestDetailScreen() {
   }, [
     id,
     donationSubmitting,
+    paymentRetryBlocked,
     selectedDonationAmount,
     donationAmountError,
     showName,
     anonymousModeEnabled,
     request,
     loadRequest,
-    loadDonors,
     signOut,
   ]);
 
@@ -1273,9 +1405,19 @@ export default function RequestDetailScreen() {
 
               <CTAButton
                 variant="gradient"
-                label={donationSubmitting ? 'Processing…' : 'Continue'}
+                label={
+                  donationSubmitting
+                    ? 'Processing…'
+                    : paymentRetryBlocked
+                      ? 'Payment pending'
+                      : 'Continue'
+                }
                 onPress={() => void onContinueDonation()}
-                disabled={donationSubmitting || Boolean(donationAmountError)}
+                disabled={
+                  donationSubmitting ||
+                  paymentRetryBlocked ||
+                  Boolean(donationAmountError)
+                }
               />
               {donationProgressMessage ? (
                 <Text style={styles.paymentProgressText}>{donationProgressMessage}</Text>

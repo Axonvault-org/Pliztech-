@@ -1,6 +1,8 @@
-import { router } from 'expo-router';
+import { type Href } from 'expo-router';
 
 import { isSupportMessagesNotificationType } from '@/lib/api/notifications';
+import { navigateToHome, pushWithHomeBehind } from '@/lib/navigation/home-navigation';
+import { navigateToSupportFromNotification } from '@/lib/navigation/in-app-notification-navigation';
 import { navigateToBegDetailOrPastOverlay } from '@/lib/navigation/post-donation-navigation';
 
 function readId(data: Record<string, unknown>, snake: string, camel: string): string | undefined {
@@ -11,7 +13,7 @@ function readId(data: Record<string, unknown>, snake: string, camel: string): st
   return undefined;
 }
 
-/** Navigate from an OS push tap — mirrors inbox row routing. */
+/** Navigate from an OS push tap — mirrors inbox row routing, with Home behind Back. */
 export function navigateFromPushNotificationData(
   data: Record<string, unknown> | undefined
 ): void {
@@ -21,22 +23,22 @@ export function navigateFromPushNotificationData(
   const chatId = readId(data, 'chat_id', 'chatId');
   const broadcastId = readId(data, 'broadcast_id', 'broadcastId');
   const begId = readId(data, 'beg_id', 'begId');
+  const notificationId = readId(data, 'notification_id', 'notificationId');
 
   if (isSupportMessagesNotificationType(type) || chatId || broadcastId) {
-    router.push({
-      pathname: '/(tabs)/admin-messages',
-      params: {
-        ...(chatId ? { chatId } : {}),
-        ...(broadcastId ? { broadcastId } : {}),
-      },
-    });
+    navigateToSupportFromNotification({ chatId, broadcastId });
     return;
   }
 
   if (begId) {
-    void navigateToBegDetailOrPastOverlay(begId);
+    void navigateToBegDetailOrPastOverlay(begId, { ensureHomeBehindDetail: true });
     return;
   }
 
-  router.push('/(tabs)/notifications');
+  if (notificationId) {
+    pushWithHomeBehind('/(tabs)/notifications' as Href);
+    return;
+  }
+
+  navigateToHome();
 }

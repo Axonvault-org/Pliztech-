@@ -19,10 +19,6 @@ import { PlizApiError } from '@/lib/api/types';
 
 const LOGO = require('@/assets/images/pliz-logo.png');
 
-/** Aligns with pliz-backend signupValidation + API docs */
-const PASSWORD_COMPLEXITY_MESSAGE =
-  'Use 8+ characters with upper & lower case, a number, and a special character (@$!%*?&#)';
-
 const signupSchema = z
   .object({
     username: z
@@ -35,11 +31,7 @@ const signupSchema = z
     password: z
       .string()
       .min(1, 'Password is required')
-      .min(8, 'Password must be at least 8 characters')
-      .regex(
-        /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]+$/,
-        PASSWORD_COMPLEXITY_MESSAGE
-      ),
+      .min(8, 'Password must be at least 8 characters'),
     confirmPassword: z.string().min(1, 'Please confirm your password'),
   })
   .refine((data) => data.password === data.confirmPassword, {
@@ -197,7 +189,7 @@ export default function RegisterScreen() {
                 onBlur={onBlur}
                 secureTextEntry={!passwordVisible}
                 onToggleSecure={() => setPasswordVisible((v) => !v)}
-                hint="8+ chars, upper & lower case, number, special (@$!%*?&#)"
+                hint="8+ chars with upper & lower case, a number, and a special character"
                 error={errors.password?.message}
                 accessibilityLabel="Create password"
               />
