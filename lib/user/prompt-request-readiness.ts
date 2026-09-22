@@ -1,14 +1,15 @@
-import { router, type Href } from 'expo-router';
+import { router } from 'expo-router';
 import { Alert } from 'react-native';
 
 import type { MeUser } from '@/lib/api/types';
 import {
+  kycHrefForCreateRequest,
+  signupProfileHrefForCreateRequest,
+} from '@/lib/navigation/donation-request-flow';
+import {
   BEG_TIER1_MAX_AMOUNT_NGN,
   getDonationRequestBlockReason,
 } from '@/lib/user/request-readiness';
-
-const SIGNUP_PROFILE_HREF = '/(auth)/signup-profile' as Href;
-const KYC_HREF = '/(tabs)/kyc-verification' as Href;
 
 /**
  * Returns true when the user may proceed with donation request submission.
@@ -29,7 +30,8 @@ export function promptDonationRequestReadiness(
         { text: 'Not now', style: 'cancel' },
         {
           text: 'Complete profile',
-          onPress: () => router.push(SIGNUP_PROFILE_HREF),
+          onPress: () =>
+            router.push(signupProfileHrefForCreateRequest(amountRequestedNgn)),
         },
       ]
     );
@@ -43,7 +45,7 @@ export function promptDonationRequestReadiness(
       { text: 'Not now', style: 'cancel' },
       {
         text: 'Verify now',
-        onPress: () => router.push(KYC_HREF),
+        onPress: () => router.push(kycHrefForCreateRequest(amountRequestedNgn)),
       },
     ]
   );

@@ -1,5 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, StyleSheet, TextInput, View } from 'react-native';
 
@@ -17,13 +17,34 @@ import {
 import { formatPlizApiErrorForUser } from '@/lib/api/types';
 import { getAccessToken } from '@/lib/auth/access-token';
 import { recoverFromUnauthorized, isUnauthorizedSessionError } from '@/lib/auth/session-expired';
+import {
+  isWithdrawalPinFlow,
+  withdrawFundsStep3Href,
+} from '@/lib/navigation/withdrawal-pin-flow';
 
 function normalizePin(value: string): string {
   return value.replace(/\D/g, '').slice(0, 4);
 }
 
+function firstParam(value: string | string[] | undefined): string | undefined {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value) && value[0]) return value[0];
+  return undefined;
+}
+
 export default function TransactionPinScreen() {
   const { signOut } = useCurrentUser();
+  const flowParams = useLocalSearchParams<{
+    returnTo?: string | string[];
+    begId?: string | string[];
+    amount?: string | string[];
+    bankAccountId?: string | string[];
+  }>();
+  const returnTo = firstParam(flowParams.returnTo);
+  const fromWithdrawal = isWithdrawalPinFlow(returnTo);
+  const withdrawBegId = firstParam(flowParams.begId);
+  const withdrawAmount = firstParam(flowParams.amount);
+  const withdrawBankAccountId = firstParam(flowParams.bankAccountId);
   const [status, setStatus] = useState<TransactionPinStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -209,6 +230,22 @@ export default function TransactionPinScreen() {
             label={successMessage ? 'Done' : saving ? 'Saving…' : hasPin ? 'Change PIN' : 'Set PIN'}
             onPress={() => {
               if (successMessage) {
+                if (
+                  fromWithdrawal &&
+                  withdrawBegId &&
+                  withdrawAmount &&
+                  withdrawBankAccountId
+                ) {
+                  router.replace(
+                    withdrawFundsStep3Href({
+                      begId: withdrawBegId,
+                      amount: withdrawAmount,
+                      bankAccountId: withdrawBankAccountId,
+                      pinCreated: true,
+                    })
+                  );
+                  return;
+                }
                 router.back();
                 return;
               }

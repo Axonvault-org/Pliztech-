@@ -1,3 +1,4 @@
+import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -34,8 +35,26 @@ import { useCurrentUser } from '@/contexts/CurrentUserContext';
 import { useRequestSafetyActions } from '@/hooks/useRequestSafetyActions';
 import { buildRequestCardSafetyMenu } from '@/components/request/request-card-safety';
 import { reportBeg } from '@/lib/api/reports';
+import {
+  exitToCreateRequestFlow,
+  isCreateRequestFlow,
+} from '@/lib/navigation/donation-request-flow';
+
+function firstParam(value: string | string[] | undefined): string | undefined {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value) && value[0]) return value[0];
+  return undefined;
+}
 
 export default function BrowseScreen() {
+  const flowParams = useLocalSearchParams<{
+    returnTo?: string | string[];
+    amountRequested?: string | string[];
+  }>();
+  const returnTo = firstParam(flowParams.returnTo);
+  const amountRequested = firstParam(flowParams.amountRequested);
+  const fromCreateRequest = isCreateRequestFlow(returnTo);
+
   const { user, signOut } = useCurrentUser();
   const {
     hiddenBegIds,
@@ -185,7 +204,13 @@ export default function BrowseScreen() {
 
   return (
     <Screen backgroundColor="#FFFFFF">
-      <AppHeaderLogoRow />
+      <AppHeaderLogoRow
+        onPressBack={
+          fromCreateRequest
+            ? () => exitToCreateRequestFlow(amountRequested)
+            : undefined
+        }
+      />
 
       <FlatList
         data={filteredRequests}

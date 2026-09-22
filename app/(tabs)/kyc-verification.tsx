@@ -1,5 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -35,6 +35,11 @@ import {
   recoverFromUnauthorized,
   withUnauthorizedRecovery,
 } from '@/lib/auth/session-expired';
+import {
+  exitToCreateRequestFlow,
+  isCreateRequestFlow,
+  kycCompleteHrefForCreateRequest,
+} from '@/lib/navigation/donation-request-flow';
 
 const RESEND_COOLDOWN_SEC = 60;
 
@@ -63,8 +68,21 @@ function maskPhoneNumber(phone: string): string {
   return '*'.repeat(digits.length - 3) + digits.slice(-3);
 }
 
+function firstParam(value: string | string[] | undefined): string | undefined {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value) && value[0]) return value[0];
+  return undefined;
+}
+
 export default function KycVerificationScreen() {
   const { refreshUser, signOut } = useCurrentUser();
+  const flowParams = useLocalSearchParams<{
+    returnTo?: string | string[];
+    amountRequested?: string | string[];
+  }>();
+  const returnTo = firstParam(flowParams.returnTo);
+  const amountRequested = firstParam(flowParams.amountRequested);
+  const fromCreateRequest = isCreateRequestFlow(returnTo);
 
   const [status, setStatus] = useState<KycStatusPayload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -288,7 +306,16 @@ export default function KycVerificationScreen() {
       await loadStatus();
       await refreshUser();
       if (outcome.kind === 'verified') {
-        router.replace('/(tabs)/kyc-verification-complete');
+        if (fromCreateRequest) {
+          const amount = amountRequested ? Number(amountRequested) : undefined;
+          router.replace(
+            kycCompleteHrefForCreateRequest(
+              amount != null && Number.isFinite(amount) ? amount : undefined
+            )
+          );
+        } else {
+          router.replace('/(tabs)/kyc-verification-complete');
+        }
         return;
       }
     } catch (e) {
@@ -306,6 +333,9 @@ export default function KycVerificationScreen() {
         title="Verify Identity"
         backIconColor="#6B7280"
         showNotification={false}
+        onPressBack={
+          fromCreateRequest ? () => exitToCreateRequestFlow(amountRequested) : undefined
+        }
       />
 
       <View style={styles.content}>

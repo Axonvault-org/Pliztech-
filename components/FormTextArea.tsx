@@ -1,4 +1,4 @@
-import type { ComponentProps } from 'react';
+import type { ComponentProps, ReactNode } from 'react';
 import { useState } from 'react';
 import {
   type StyleProp,
@@ -22,6 +22,8 @@ export interface FormTextAreaProps
   extends Omit<ComponentProps<typeof TextInput>, 'style' | 'multiline'> {
   label: string;
   error?: string;
+  /** Rich error (e.g. inline links). Shown instead of `error` when set. */
+  errorContent?: ReactNode;
   hint?: string;
   /** Show current/max in the label row (e.g. words or characters). */
   wordCount?: { current: number; max: number };
@@ -39,6 +41,7 @@ const SINGLE_LINE_MIN_HEIGHT = 52;
 export function FormTextArea({
   label,
   error,
+  errorContent,
   hint,
   wordCount,
   countUnit = 'words',
@@ -49,7 +52,8 @@ export function FormTextArea({
   ...inputProps
 }: FormTextAreaProps) {
   const [isFocused, setIsFocused] = useState(false);
-  const borderColor = error
+  const hasError = Boolean(error || errorContent);
+  const borderColor = hasError
     ? ERROR_COLOR
     : isFocused
       ? HOVER_FOCUS_BORDER_COLOR
@@ -99,7 +103,7 @@ export function FormTextArea({
             styles.input,
             isSingle && styles.inputSingle,
             { borderColor },
-            error ? styles.inputError : undefined,
+            hasError ? styles.inputError : undefined,
           ]}
           placeholderTextColor={BODY_COLOR}
           multiline={!isSingle}
@@ -112,8 +116,12 @@ export function FormTextArea({
           {...focusProps}
         />
       )}
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-      {hint && !error ? <Text style={styles.hint}>{hint}</Text> : null}
+      {errorContent ? (
+        <View style={styles.errorWrap}>{errorContent}</View>
+      ) : error ? (
+        <Text style={styles.error}>{error}</Text>
+      ) : null}
+      {hint && !hasError ? <Text style={styles.hint}>{hint}</Text> : null}
     </View>
   );
 }
@@ -175,6 +183,9 @@ const styles = StyleSheet.create({
   },
   inputError: {
     borderColor: ERROR_COLOR,
+  },
+  errorWrap: {
+    marginTop: 6,
   },
   error: {
     fontSize: 12,
