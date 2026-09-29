@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, StyleSheet, TextInput, View } from 'react-native';
+import { ActivityIndicator, Modal, StyleSheet, TextInput, View } from 'react-native';
 
 import { CTAButton } from '@/components/CTAButton';
 import { AppHeaderTitleRow } from '@/components/layout/AppHeaderTitleRow';
@@ -53,6 +53,29 @@ export default function TransactionPinScreen() {
   const [confirmPin, setConfirmPin] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [withdrawPinSuccessModalVisible, setWithdrawPinSuccessModalVisible] =
+    useState(false);
+
+  const canReturnToWithdrawal =
+    fromWithdrawal &&
+    Boolean(withdrawBegId) &&
+    Boolean(withdrawAmount) &&
+    Boolean(withdrawBankAccountId);
+
+  const returnToWithdrawFlow = useCallback(() => {
+    if (!withdrawBegId || !withdrawAmount || !withdrawBankAccountId) {
+      return;
+    }
+    setWithdrawPinSuccessModalVisible(false);
+    router.replace(
+      withdrawFundsStep3Href({
+        begId: withdrawBegId,
+        amount: withdrawAmount,
+        bankAccountId: withdrawBankAccountId,
+        pinCreated: true,
+      })
+    );
+  }, [withdrawBegId, withdrawAmount, withdrawBankAccountId]);
 
   const loadStatus = useCallback(
     async (retryAfterRefresh = false) => {
@@ -116,6 +139,7 @@ export default function TransactionPinScreen() {
     }
 
     setSaving(true);
+    const wasChangingPin = hasPin;
     try {
       if (hasPin) {
         await changeTransactionPin(token, currentPin, pin);
@@ -132,11 +156,15 @@ export default function TransactionPinScreen() {
         failedAttempts: 0,
         maxFailedAttempts: prev?.maxFailedAttempts ?? 5,
       }));
-      setSuccessMessage(
-        hasPin
-          ? 'Your Transaction PIN has been updated.'
-          : 'Your Transaction PIN is ready for secure transactions.'
-      );
+      if (!wasChangingPin && canReturnToWithdrawal) {
+        setWithdrawPinSuccessModalVisible(true);
+      } else {
+        setSuccessMessage(
+          wasChangingPin
+            ? 'Your Transaction PIN has been updated.'
+            : 'Your Transaction PIN is ready for secure transactions.'
+        );
+      }
     } catch (e) {
       setError(formatPlizApiErrorForUser(e));
     } finally {
@@ -145,8 +173,18 @@ export default function TransactionPinScreen() {
   };
 
   return (
+    <>
     <Screen backgroundColor="#F9FAFB" scrollable>
-      <AppHeaderTitleRow title="Transaction PIN" />
+      <AppHeaderTitleRow
+        title="Transaction PIN"
+        onPressBack={() => {
+          if (withdrawPinSuccessModalVisible && canReturnToWithdrawal) {
+            returnToWithdrawFlow();
+            return;
+          }
+          router.back();
+        }}
+      />
 
       {loading ? (
         <View style={styles.centered}>
@@ -230,20 +268,8 @@ export default function TransactionPinScreen() {
             label={successMessage ? 'Done' : saving ? 'Saving…' : hasPin ? 'Change PIN' : 'Set PIN'}
             onPress={() => {
               if (successMessage) {
-                if (
-                  fromWithdrawal &&
-                  withdrawBegId &&
-                  withdrawAmount &&
-                  withdrawBankAccountId
-                ) {
-                  router.replace(
-                    withdrawFundsStep3Href({
-                      begId: withdrawBegId,
-                      amount: withdrawAmount,
-                      bankAccountId: withdrawBankAccountId,
-                      pinCreated: true,
-                    })
-                  );
+                if (canReturnToWithdrawal) {
+                  returnToWithdrawFlow();
                   return;
                 }
                 router.back();
@@ -252,7 +278,10 @@ export default function TransactionPinScreen() {
               void handleSave();
             }}
             variant="gradient"
-            disabled={!successMessage && (!canSubmit || saving || Boolean(status?.locked))}
+            disabled={
+              withdrawPinSuccessModalVisible ||
+              (!successMessage && (!canSubmit || saving || Boolean(status?.locked)))
+            }
             accessibilityLabel={
               successMessage
                 ? 'Done'
@@ -264,6 +293,38 @@ export default function TransactionPinScreen() {
         </View>
       )}
     </Screen>
+
+      <Modal
+        visible={withdrawPinSuccessModalVisible}
+        animationType="fade"
+        transparent
+        onRequestClose={() => {
+          if (canReturnToWithdrawal) {
+            returnToWithdrawFlow();
+          }
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalIconWrap}>
+              <Ionicons name="checkmark-circle" size={36} color="#059669" />
+            </View>
+            <Text style={styles.modalTitle}>Transaction PIN created</Text>
+            <Text style={styles.modalSubtitle}>
+              You&apos;ll enter your PIN next to confirm this withdrawal.
+            </Text>
+            <View style={styles.modalCtaWrap}>
+              <CTAButton
+                label="Done"
+                onPress={returnToWithdrawFlow}
+                variant="gradient"
+                accessibilityLabel="Done, continue to withdrawal"
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </>
   );
 }
 
@@ -343,5 +404,38 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: '#B91C1C',
     marginBottom: 12,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  modalCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 24,
+    alignItems: 'center',
+  },
+  modalIconWrap: {
+    marginBottom: 12,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  modalCtaWrap: {
+    width: '100%',
+    alignItems: 'center',
   },
 });
