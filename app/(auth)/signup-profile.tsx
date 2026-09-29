@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Image } from 'expo-image';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import {
@@ -23,6 +23,7 @@ import { Screen } from '@/components/Screen';
 import { formContentStyle } from '@/constants/layout';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
 import { NIGERIAN_STATES } from '@/constants/nigerian-states';
+import { getMe } from '@/lib/api/auth';
 import { completeProfile } from '@/lib/api/profile';
 import { PlizApiError } from '@/lib/api/types';
 import { getAccessToken } from '@/lib/auth/access-token';
@@ -31,6 +32,11 @@ import {
   withUnauthorizedRecovery,
 } from '@/lib/auth/session-expired';
 import { enterAuthenticatedApp } from '@/lib/navigation/auth-navigation';
+import {
+  continueAfterProfileCompleteForRequestFlow,
+  exitToCreateRequestFlow,
+  isCreateRequestFlow,
+} from '@/lib/navigation/donation-request-flow';
 
 const LOGO = require('@/assets/images/pliz-logo.png');
 
@@ -124,8 +130,21 @@ const COLORS = {
   error: '#DC2626',
 } as const;
 
+function firstParam(value: string | string[] | undefined): string | undefined {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value) && value[0]) return value[0];
+  return undefined;
+}
+
 export default function SignupProfileScreen() {
   const { refreshUser, signOut } = useCurrentUser();
+  const params = useLocalSearchParams<{
+    returnTo?: string | string[];
+    amountRequested?: string | string[];
+  }>();
+  const returnTo = firstParam(params.returnTo);
+  const amountRequested = firstParam(params.amountRequested);
+  const fromCreateRequest = isCreateRequestFlow(returnTo);
   const [consentChecked, setConsentChecked] = useState(false);
   const [consentError, setConsentError] = useState<string | null>(null);
   const [accessToken, setAccessTokenState] = useState<string | null>(null);
@@ -232,6 +251,12 @@ export default function SignupProfileScreen() {
         })
       );
       await refreshUser();
+      if (fromCreateRequest) {
+        const token = await getAccessTokenOrTryRefresh();
+        const me = token ? await getMe(token) : null;
+        continueAfterProfileCompleteForRequestFlow(me, amountRequested);
+        return;
+      }
       enterAuthenticatedApp('/(tabs)/(main)' as import('expo-router').Href);
     } catch (e) {
       if (e instanceof PlizApiError) {
@@ -252,6 +277,14 @@ export default function SignupProfileScreen() {
   };
 
   const onBack = () => {
+    if (fromCreateRequest) {
+      exitToCreateRequestFlow(amountRequested);
+      return;
+    }
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
     if (accessToken) {
       enterAuthenticatedApp('/(tabs)/(main)' as import('expo-router').Href);
       return;

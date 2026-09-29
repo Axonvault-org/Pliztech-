@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as ImagePicker from 'expo-image-picker';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { router, type Href } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams, type Href } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import {
@@ -15,6 +15,7 @@ import {
 import { Text } from '@/components/Text';
 import { z } from 'zod';
 
+import { BegAmountTierInlineError } from '@/components/create/BegAmountTierInlineError';
 import { CategoryChip } from '@/components/create/CategoryChip';
 import { ConfirmRequestModal } from '@/components/create/ConfirmRequestModal';
 import { RequestLiveModal } from '@/components/create/RequestLiveModal';
@@ -31,10 +32,7 @@ import {
   clampBegDescriptionWhileTyping,
   countDescriptionWords,
 } from '@/lib/beg/description-limits';
-import {
-  getBegAmountTierError,
-  parseAmountInput,
-} from '@/lib/beg/tier-progression';
+import { getBegAmountTierError, parseAmountInput } from '@/lib/beg/tier-progression';
 import {
   clampBegDescriptionForApi,
   createBeg,
@@ -51,6 +49,11 @@ import {
   withUnauthorizedRecovery,
 } from '@/lib/auth/session-expired';
 import { formatAmountInput } from '@/lib/money/input-format';
+import {
+  browseHrefForCreateRequest,
+  consumeProfileCompletedNotice,
+  kycHrefForCreateRequest,
+} from '@/lib/navigation/donation-request-flow';
 import { promptDonationRequestReadiness } from '@/lib/user/prompt-request-readiness';
 import {
   PLATFORM_FEE_PERCENT,
@@ -123,8 +126,18 @@ function buildTrustLimitMessage(progress: TrustProgress | null): string {
   return 'Build trust by verifying your identity and helping others.';
 }
 
+function firstParam(value: string | string[] | undefined): string | undefined {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value) && value[0]) return value[0];
+  return undefined;
+}
+
 export default function CreateScreen() {
   const { user, signOut } = useCurrentUser();
+  const flowParams = useLocalSearchParams<{
+    amountRequested?: string | string[];
+    profileCompleted?: string | string[];
+  }>();
   const anonymousModeEnabled = user?.profile?.isAnonymous ?? false;
   const createDefaults = useMemo<CreateRequestFormData>(
     () => ({ ...DEFAULT_CREATE_VALUES, showName: !anonymousModeEnabled }),
@@ -137,6 +150,7 @@ export default function CreateScreen() {
   const [confirmVisible, setConfirmVisible] = useState(false);
   const [pendingSubmit, setPendingSubmit] = useState<CreateRequestFormData | null>(null);
   const [evidenceFiles, setEvidenceFiles] = useState<EvidenceUploadFile[]>([]);
+  const [profileCompletedNotice, setProfileCompletedNotice] = useState(false);
   const [liveSuccess, setLiveSuccess] = useState<{
     requestId: string;
     amount: number;
@@ -167,7 +181,14 @@ export default function CreateScreen() {
     if (parsedAmount == null || parsedAmount < 100) return null;
     return getBegAmountTierError(parsedAmount, user);
   }, [parsedAmount, user]);
-  const amountDisplayError = errors.amount?.message ?? amountTierError ?? undefined;
+  const amountFormError = errors.amount?.message;
+  const showTierInlineError =
+    amountTierError != null &&
+    parsedAmount != null &&
+    parsedAmount > 10_000 &&
+    parsedAmount <= 200_000;
+  const amountDisplayError =
+    amountFormError ?? (showTierInlineError ? undefined : amountTierError ?? undefined);
   const continueDisabled = isSubmitting || !isValid || amountTierError != null;
 
   const loadTrustProgress = useCallback(async () => {
@@ -187,6 +208,27 @@ export default function CreateScreen() {
   useEffect(() => {
     void loadTrustProgress();
   }, [loadTrustProgress]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (consumeProfileCompletedNotice()) {
+        setProfileCompletedNotice(true);
+      }
+    }, [])
+  );
+
+  useEffect(() => {
+    const amountRaw = firstParam(flowParams.amountRequested);
+    if (amountRaw) {
+      const formatted = formatAmountInput(amountRaw);
+      if (formatted) {
+        setValue('amount', formatted, { shouldDirty: true, shouldValidate: true });
+      }
+    }
+    if (firstParam(flowParams.profileCompleted) === '1') {
+      setProfileCompletedNotice(true);
+    }
+  }, [flowParams.amountRequested, flowParams.profileCompleted, setValue]);
 
   useEffect(() => {
     if (anonymousModeEnabled) {
@@ -410,6 +452,14 @@ export default function CreateScreen() {
             Tell us what you need the money for. Keep it simple and honest
           </Text>
 
+          {profileCompletedNotice ? (
+            <View style={styles.profileNotice}>
+              <Text style={styles.profileNoticeText}>
+                Profile complete. Finish your request below.
+              </Text>
+            </View>
+          ) : null}
+
           <RequestLimitAlert
             limit={formatNaira(trustProgress?.capabilities.maxAmount ?? 10000)}
             tierLabel={
@@ -499,6 +549,20 @@ export default function CreateScreen() {
                 onBlur={onBlur}
                 keyboardType="numeric"
                 error={amountDisplayError}
+                errorContent={
+                  showTierInlineError && parsedAmount != null ? (
+                    <BegAmountTierInlineError
+                      requestedAmount={parsedAmount}
+                      user={user}
+                      onVerify={() =>
+                        router.push(kycHrefForCreateRequest(parsedAmount ?? undefined))
+                      }
+                      onDonate={() =>
+                        router.push(browseHrefForCreateRequest(parsedAmount ?? undefined))
+                      }
+                    />
+                  ) : undefined
+                }
                 hint="Minimum ₦100. Subject to your trust tier limit."
               />
             )}
@@ -612,6 +676,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: COLORS.body,
     marginBottom: 20,
+  },
+  profileNotice: {
+    backgroundColor: '#ECFDF5',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    padding: 14,
+    marginBottom: 16,
+  },
+  profileNoticeText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#065F46',
+    lineHeight: 20,
   },
   sectionTitleRow: {
     flexDirection: 'row',

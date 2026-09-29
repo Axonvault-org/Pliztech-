@@ -1,5 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
@@ -9,6 +9,10 @@ import { Text } from '@/components/Text';
 import { useCurrentUser } from '@/contexts/CurrentUserContext';
 import { getTrustProgress, type TrustProgress } from '@/lib/api/beg';
 import { getAccessTokenOrTryRefresh } from '@/lib/auth/session-expired';
+import {
+  createRequestHref,
+  isCreateRequestFlow,
+} from '@/lib/navigation/donation-request-flow';
 
 function formatNaira(amount: number): string {
   return `₦${Math.round(amount).toLocaleString('en-NG')}`;
@@ -56,8 +60,20 @@ function buildSubtitle(progress: TrustProgress | null): string {
   return `Your identity has been confirmed. You can now request up to ${formatNaira(progress.capabilities.maxAmount)} based on your trust tier.`;
 }
 
+function firstParam(value: string | string[] | undefined): string | undefined {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value) && value[0]) return value[0];
+  return undefined;
+}
+
 export default function KycVerificationCompleteScreen() {
   const { refreshUser } = useCurrentUser();
+  const flowParams = useLocalSearchParams<{
+    returnTo?: string | string[];
+    amountRequested?: string | string[];
+  }>();
+  const fromCreateRequest = isCreateRequestFlow(firstParam(flowParams.returnTo));
+  const amountRequested = firstParam(flowParams.amountRequested);
   const [trustProgress, setTrustProgress] = useState<TrustProgress | null>(null);
 
   useEffect(() => {
@@ -88,6 +104,16 @@ export default function KycVerificationCompleteScreen() {
     void refreshUser();
     router.replace('/(tabs)/(main)');
   }, [refreshUser]);
+
+  const continueRequest = useCallback(() => {
+    void refreshUser();
+    const amount = amountRequested ? Number(amountRequested) : undefined;
+    router.replace(
+      createRequestHref({
+        amountRequestedNgn: amount != null && Number.isFinite(amount) ? amount : undefined,
+      })
+    );
+  }, [amountRequested, refreshUser]);
 
   return (
     <Screen backgroundColor="#FFFFFF" scrollable centerVertical>
@@ -120,10 +146,18 @@ export default function KycVerificationCompleteScreen() {
         </View>
 
         <View style={styles.actions}>
+          {fromCreateRequest ? (
+            <CTAButton
+              label="Continue request"
+              onPress={continueRequest}
+              variant="gradient"
+              accessibilityLabel="Continue your donation request"
+            />
+          ) : null}
           <CTAButton
             label="Back to Profile"
             onPress={goToProfile}
-            variant="gradient"
+            variant={fromCreateRequest ? 'transparent' : 'gradient'}
             accessibilityLabel="Back to Profile"
           />
           <CTAButton

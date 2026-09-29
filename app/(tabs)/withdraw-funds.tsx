@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect } from '@react-navigation/native';
 import { router, useLocalSearchParams, type Href } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -66,11 +66,14 @@ import {
   recoverFromUnauthorized,
   withUnauthorizedRecovery,
 } from '@/lib/auth/session-expired';
+import {
+  transactionPinHrefForWithdrawal,
+  withdrawFundsStep3Href,
+} from '@/lib/navigation/withdrawal-pin-flow';
 
 const BLUE_BAR = '#2E8BEA';
 const ORANGE_BAR = '#F59E0B';
 const GREEN_BAR = '#059669';
-const TRANSACTION_PIN_ROUTE = '/(tabs)/transaction-pin' as Href;
 
 function formatNaira(amount: number) {
   return `₦${Math.round(amount).toLocaleString()}`;
@@ -196,6 +199,7 @@ export default function WithdrawFundsScreen() {
     begId?: string;
     amount?: string;
     bankAccountId?: string;
+    pinCreated?: string;
   }>();
   const step = Math.min(3, Math.max(1, parseInt(String(params.step ?? '1'), 10) || 1));
   const paramBegId = typeof params.begId === 'string' ? params.begId : '';
@@ -248,6 +252,8 @@ export default function WithdrawFundsScreen() {
   const [pinModalOpen, setPinModalOpen] = useState(false);
   const [transactionPin, setTransactionPin] = useState('');
   const [pinError, setPinError] = useState<string | null>(null);
+  const [pinCreatedNotice, setPinCreatedNotice] = useState(false);
+  const handledPinCreatedRef = useRef(false);
 
   const load = useCallback(
     async (opts?: { background?: boolean; _retry?: boolean }) => {
@@ -364,6 +370,13 @@ export default function WithdrawFundsScreen() {
       setStep2Error(null);
     }
   }, [step, loadBanks, loadSavedAccounts]);
+
+  useEffect(() => {
+    if (step !== 3) {
+      handledPinCreatedRef.current = false;
+      setPinCreatedNotice(false);
+    }
+  }, [step]);
 
   /** Step 2 / 3 require selection context; step 3 needs a bank account id */
   useEffect(() => {
@@ -681,6 +694,91 @@ export default function WithdrawFundsScreen() {
       setConfirmSubmitting(false);
     }
   };
+
+  const syncWithdrawalPinState = useCallback(
+    async (opts?: { openPinModal?: boolean; showCreatedNotice?: boolean }) => {
+      if (step !== 3 || !paramBegId || !paramBankAccountId) return;
+      try {
+        const pinStatus = await withUnauthorizedRecovery(signOut, (token) =>
+          getTransactionPinStatus(token)
+        );
+        if (!pinStatus.hasPin) {
+          return;
+        }
+        setPinSetupRequired(false);
+        setConfirmError((prev) =>
+          prev?.includes('Create a 4-digit Transaction PIN') ? null : prev
+        );
+        if (opts?.showCreatedNotice) {
+          setPinCreatedNotice(true);
+        }
+        if (pinStatus.locked) {
+          setConfirmError(
+            'Your Transaction PIN is temporarily locked. Please try again later.'
+          );
+          return;
+        }
+        if (opts?.openPinModal) {
+          setTransactionPin('');
+          setPinError(null);
+          setPinModalOpen(true);
+        }
+      } catch {
+        /* keep existing step 3 UI on background sync failure */
+      }
+    },
+    [step, paramBegId, paramBankAccountId, signOut]
+  );
+
+  useEffect(() => {
+    if (step !== 3 || !step3Summary || String(params.pinCreated ?? '') !== '1') {
+      return;
+    }
+    if (!paramBegId || !paramBankAccountId || amountNaira <= 0) return;
+    if (handledPinCreatedRef.current) return;
+    handledPinCreatedRef.current = true;
+
+    void (async () => {
+      await syncWithdrawalPinState({
+        openPinModal: true,
+        showCreatedNotice: true,
+      });
+      router.replace(
+        withdrawFundsStep3Href({
+          begId: paramBegId,
+          amount: String(amountNaira),
+          bankAccountId: paramBankAccountId,
+        })
+      );
+    })();
+  }, [
+    step,
+    step3Summary,
+    params.pinCreated,
+    paramBegId,
+    paramBankAccountId,
+    amountNaira,
+    syncWithdrawalPinState,
+  ]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (step !== 3 || !paramBegId || !paramBankAccountId || !step3Summary) {
+        return;
+      }
+      if (String(params.pinCreated ?? '') === '1') {
+        return;
+      }
+      void syncWithdrawalPinState();
+    }, [
+      step,
+      paramBegId,
+      paramBankAccountId,
+      step3Summary,
+      params.pinCreated,
+      syncWithdrawalPinState,
+    ])
+  );
 
   const handleConfirmWithdrawal = async () => {
     if (!paramBankAccountId || !paramBegId || !step3Summary || confirmSubmitting) return;
@@ -1022,6 +1120,14 @@ export default function WithdrawFundsScreen() {
                   />
                   <WithdrawSettlementNotice />
                   <WithdrawFundsShieldNotice />
+                  {pinCreatedNotice ? (
+                    <View style={styles.pinCreatedNotice}>
+                      <Ionicons name="checkmark-circle" size={20} color="#047857" />
+                      <Text style={styles.pinCreatedNoticeText}>
+                        Transaction PIN created. Enter it below to confirm your withdrawal.
+                      </Text>
+                    </View>
+                  ) : null}
                   {pinSetupRequired ? (
                     <View style={styles.pinSetupNotice}>
                       <View style={styles.pinSetupIcon}>
@@ -1055,7 +1161,13 @@ export default function WithdrawFundsScreen() {
                     }
                     onPress={() => {
                       if (pinSetupRequired) {
-                        router.push(TRANSACTION_PIN_ROUTE);
+                        router.push(
+                          transactionPinHrefForWithdrawal({
+                            begId: paramBegId,
+                            amount: String(amountNaira),
+                            bankAccountId: paramBankAccountId,
+                          })
+                        );
                         return;
                       }
                       void handleConfirmWithdrawal();
@@ -1311,6 +1423,25 @@ const styles = StyleSheet.create({
   ctaWrap: {
     width: '100%',
     alignItems: 'center',
+  },
+  pinCreatedNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    borderRadius: 12,
+    backgroundColor: '#ECFDF5',
+    marginTop: 4,
+    marginBottom: 12,
+  },
+  pinCreatedNoticeText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
+    color: '#047857',
   },
   pinSetupNotice: {
     flexDirection: 'row',

@@ -51,6 +51,34 @@ export function getBegAmountTierError(
   return null;
 }
 
+export type BegAmountTierAction = 'verify' | 'donate';
+
+/** Actions that unblock the current amount-tier error. */
+export function getBegAmountTierActions(
+  requestedAmount: number,
+  user: MeUser | null
+): BegAmountTierAction[] {
+  if (!Number.isFinite(requestedAmount) || requestedAmount <= 10_000 || requestedAmount > 200_000) {
+    return [];
+  }
+
+  const isVerified = Boolean(user?.verification?.isVerified);
+  const totalDonated = Number(user?.stats?.totalDonated) || 0;
+  const hasDonated = totalDonated > 0;
+  const actions: BegAmountTierAction[] = [];
+
+  if (!isVerified) actions.push('verify');
+  if (requestedAmount > 100_000) {
+    if (totalDonated < 50_000) actions.push('donate');
+  } else if (requestedAmount > 50_000) {
+    if (totalDonated < 10_000) actions.push('donate');
+  } else if (!hasDonated) {
+    actions.push('donate');
+  }
+
+  return actions;
+}
+
 export function parseAmountInput(value: string): number | null {
   const cleaned = value.replace(/,/g, '').trim();
   if (!cleaned || !/^\d+$/.test(cleaned)) return null;
