@@ -1,5 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useLocalSearchParams, type Href } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -35,17 +36,12 @@ import { VerifiedByPlzBadge } from '@/components/safety/VerifiedByPlzBadge';
 import { VerificationStatusDot } from '@/components/safety/VerificationStatusDot';
 import { Screen } from '@/components/Screen';
 import { REQUEST_CATEGORIES } from '@/constants/categories';
-import {
-    begFeedItemToRequestDetail,
-    getBegById,
-} from '@/lib/api/beg';
+import { begFeedItemToRequestDetail } from '@/lib/api/beg';
 import {
   cancelDonationByReference,
-  getBegDonations,
   initializeDonation,
   verifyDonationByReference,
   waitForDonationVerification,
-  type BegDonationApiItem,
   type CancelDonationApiResult,
 } from '@/lib/api/donations';
 import {
@@ -76,9 +72,14 @@ import { useCurrentUser } from '@/contexts/CurrentUserContext';
 import * as ImagePicker from 'expo-image-picker';
 import { openPaymentCheckout } from '@/lib/utils/open-payment-checkout';
 import { withUnauthorizedRecovery } from '@/lib/auth/session-expired';
+import {
+  useBegDetailQuery,
+  useBegDonationsQuery,
+} from '@/hooks/queries/useBegDetailQueries';
 import { useRequestSafetyActions } from '@/hooks/useRequestSafetyActions';
 import { buildRequestCardSafetyMenu } from '@/components/request/request-card-safety';
 import { getAccessToken } from '@/lib/auth/access-token';
+import { queryKeys } from '@/lib/query/query-keys';
 import { digitsOnly, formatAmountInput } from '@/lib/money/input-format';
 import {
   isBegActiveForWithdrawNow,
@@ -89,7 +90,6 @@ import {
   latestWithdrawalForBeg,
   type WithdrawalApiItem,
 } from '@/lib/api/withdrawals';
-import type { RequestDetail } from '@/lib/types/requests';
 import {
   getPlatformFee,
   getRequestReceives,
@@ -149,6 +149,7 @@ function defaultDonationSelection(amountNeeded: number): {
 const REQUEST_DETAIL_MAX_WIDTH = 960;
 
 export default function RequestDetailScreen() {
+  const queryClient = useQueryClient();
   const { user, signOut } = useCurrentUser();
   const {
     hiddenBegIds,
@@ -173,15 +174,29 @@ export default function RequestDetailScreen() {
   const donationAnchorRef = useRef<View>(null);
   const pendingDonateScroll = useRef(false);
 
-  const [request, setRequest] = useState<RequestDetail | null>(null);
-  const [loading, setLoading] = useState(Boolean(id));
-  const [error, setError] = useState<string | null>(null);
+  const begDetailQuery = useBegDetailQuery(id);
+  const request = useMemo(
+    () =>
+      begDetailQuery.data ? begFeedItemToRequestDetail(begDetailQuery.data) : null,
+    [begDetailQuery.data]
+  );
+  const loading = begDetailQuery.isLoading && !begDetailQuery.data;
+  const error =
+    begDetailQuery.isError && !begDetailQuery.data
+      ? formatPlizApiErrorForUser(begDetailQuery.error)
+      : null;
+
+  const isOwnerViewer = Boolean(
+    request?.ownerUserId && user?.id && user.id === request.ownerUserId
+  );
+  const begDonationsQuery = useBegDonationsQuery(id, { enabled: isOwnerViewer });
+  const begDonations = begDonationsQuery.data?.donations ?? [];
+  const donorTotal = begDonationsQuery.data?.pagination.total ?? 0;
+  const donorsLoading = begDonationsQuery.isLoading;
+
   const [reactions, setReactions] = useState<ReactionsPayload | null>(null);
   const [reactionBusy, setReactionBusy] = useState<string | null>(null);
   const [profileModalUserId, setProfileModalUserId] = useState<string | null>(null);
-  const [begDonations, setBegDonations] = useState<BegDonationApiItem[]>([]);
-  const [donorTotal, setDonorTotal] = useState(0);
-  const [donorsLoading, setDonorsLoading] = useState(false);
   const [ownerWithdrawal, setOwnerWithdrawal] = useState<WithdrawalApiItem | null>(null);
   const [evidence, setEvidence] = useState<BegEvidenceItem[]>([]);
   const [evidenceLoading, setEvidenceLoading] = useState(false);
@@ -192,29 +207,12 @@ export default function RequestDetailScreen() {
   const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
 
   const loadRequest = useCallback(async () => {
-    if (!id) {
-      setRequest(null);
-      setLoading(false);
-      setError(null);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const token = await getAccessToken();
-      const beg = await getBegById(id, token);
-      setRequest(begFeedItemToRequestDetail(beg));
-    } catch (e) {
-      setRequest(null);
-      setError(formatPlizApiErrorForUser(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [id]);
-
-  useEffect(() => {
-    void loadRequest();
-  }, [loadRequest]);
+    if (!id) return;
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.begDetail(id) }),
+      queryClient.invalidateQueries({ queryKey: ['donations', 'beg', id] }),
+    ]);
+  }, [id, queryClient]);
 
   const scrollToDonationSection = useCallback(() => {
     const pageNode = pageContentRef.current;
@@ -257,30 +255,11 @@ export default function RequestDetailScreen() {
     void loadReactions();
   }, [loadReactions]);
 
-  const loadDonors = useCallback(async () => {
-    if (!id) return;
-    setDonorsLoading(true);
-    try {
-      const result = await getBegDonations(id, { page: 1, limit: 50 });
-      setBegDonations(result.donations);
-      setDonorTotal(result.pagination.total);
-    } catch {
-      setBegDonations([]);
-      setDonorTotal(0);
-    } finally {
-      setDonorsLoading(false);
-    }
-  }, [id]);
-
   useEffect(() => {
-    if (!request?.ownerUserId || !user?.id || user.id !== request.ownerUserId) {
-      setBegDonations([]);
-      setDonorTotal(0);
+    if (!isOwnerViewer) {
       setOwnerWithdrawal(null);
-      return;
     }
-    void loadDonors();
-  }, [request?.ownerUserId, user?.id, loadDonors]);
+  }, [isOwnerViewer]);
 
   const loadOwnerWithdrawal = useCallback(async () => {
     if (!id || !request?.ownerUserId || !user?.id || user.id !== request.ownerUserId) {

@@ -63,12 +63,15 @@ export default function BrowseScreen() {
         category: apiCategory,
         accessToken: token,
       });
-      return begs.map(feedBegToBrowseRequest);
+      return begs;
     },
     staleTime: STALE_TIMES.begsFeed,
   });
 
-  const requests = begsQuery.data ?? [];
+  const requests = useMemo(
+    () => (begsQuery.data ?? []).map(feedBegToBrowseRequest),
+    [begsQuery.data]
+  );
   const loading = begsQuery.isLoading;
   const refreshing = begsQuery.isFetching && !begsQuery.isLoading;
   const error =

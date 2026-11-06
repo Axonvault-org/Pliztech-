@@ -5,6 +5,10 @@ export const STALE_TIMES = {
   unreadCount: 60 * 1000,
   /** Public beg feeds */
   begsFeed: 2 * 60 * 1000,
+  /** Single beg detail */
+  begDetail: 2 * 60 * 1000,
+  /** Public donor list on a beg (server cache ~5 min) */
+  begDonations: 2 * 60 * 1000,
   /** Profile picture URL */
   profilePicture: 2 * 60 * 1000,
   /** Recent donations on home */

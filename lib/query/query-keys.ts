@@ -5,6 +5,9 @@ export const queryKeys = {
   profilePicture: ['profile-picture'] as const,
   begsFeed: (params: { page: number; limit: number; category?: string }) =>
     ['begs', 'feed', params] as const,
+  begDetail: (begId: string) => ['begs', 'detail', begId] as const,
+  begDonations: (begId: string, params: { page: number; limit: number }) =>
+    ['donations', 'beg', begId, params] as const,
   trendingBegs: (limit: number) => ['begs', 'trending', limit] as const,
   hiddenBegIds: ['safety', 'hidden-beg-ids'] as const,
   blockedUserIds: ['safety', 'blocked-user-ids'] as const,
